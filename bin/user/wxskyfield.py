@@ -1363,7 +1363,7 @@ def get_sat_dir(config_dict: Dict[str, Any]) -> str:
     configuration has no SQLITE_ROOT and falls back to WEEWX_ROOT."""
     weewx_root: str = config_dict.get('WEEWX_ROOT', '')
     sqlite_root: str = (config_dict.get('DatabaseTypes', {})
-                        .get('SQLite', {}).get('SQLITE_ROOT', ''))
+                        .get('SQLite_local', {}).get('SQLITE_ROOT', ''))
     return os.path.join(weewx_root, sqlite_root or '.', SAT_DIR_NAME)
 
 

@@ -160,7 +160,7 @@ class WxSkyfieldInstaller(ExtensionInstaller):
         WEEWX_ROOT."""
         weewx_root = engine.config_dict.get('WEEWX_ROOT', '')
         sqlite_root = (engine.config_dict.get('DatabaseTypes', {})
-                       .get('SQLite', {}).get('SQLITE_ROOT', ''))
+                       .get('SQLite_local', {}).get('SQLITE_ROOT', ''))
         base_dir = os.path.join(weewx_root, sqlite_root or '.')
         return base_dir, os.path.join(base_dir, 'wxskyfield')
 
