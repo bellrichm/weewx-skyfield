@@ -10,6 +10,7 @@ Cheetah template and skin.conf must parse.
 """
 
 import contextlib
+import inspect
 import logging
 import os
 import re
@@ -1747,6 +1748,233 @@ class TestPanelGuard:
         self._break_bodies(monkeypatch)
         with pytest.raises(ValueError, match='light, night'):
             page.dome_svg(almanac, palette='sepia')
+
+
+# Every public $sky_page method that takes an almanac, assigned to the rung
+# of the tier ladder (wxskyfield_sky.TIER_*) it needs to draw on.  A
+# partition, pinned by TestAlmanacTiers, so a panel added later cannot skip
+# the tier question -- which is exactly how the first cut of this went
+# wrong: it modeled two tiers, put PyEphem's eleven panels on the basic
+# tier, and every one of them threw there.
+ENGINE_PANELS = ('dome_svg', 'eot_svg', 'moon_apsides_html',
+                 'pass_chart_html', 'satellites_html')
+EXTRAS_PANELS = ('analemma_svg', 'chips_html', 'countdown_html',
+                 'daylength_svg', 'lunation_svg', 'moon_svg', 'moonset_html',
+                 'orrery_svg', 'ribbons_svg', 'sun_is_up', 'sunpath_svg',
+                 'table_html')
+BASIC_PANELS = ('header_sub', 'palette', 'theme')
+# Of those, the ones that answer with markup assert_balanced can judge.
+EXTRAS_MARKUP = tuple(n for n in EXTRAS_PANELS if n != 'sun_is_up')
+
+
+@contextlib.contextmanager
+def _tier(*almanac_types):
+    """Serve $almanac from exactly these almanac types, with the warn-once
+    state cleared going in and coming out."""
+    with saved_almanacs():
+        weewx.almanac.almanacs[:] = [t() for t in almanac_types]
+        wxskyfield_sky._warned_tiers.clear()
+        try:
+            yield weewx.almanac.Almanac(TIME_TS, LATITUDE, LONGITUDE,
+                                        altitude=ALTITUDE_M,
+                                        formatter=weewx.units.get_default_formatter())
+        finally:
+            wxskyfield_sky._warned_tiers.clear()
+
+
+@pytest.fixture()
+def extras_almanac():
+    """The PyEphem tier: no Skyfield almanac, but an almanac with hasExtras.
+
+    A legitimate configuration, and the one that found the original bug: the
+    almanac service and the $sky_page search-list extension install and
+    configure separately, so a skin can name $sky_page on a station that
+    never enabled [Skyfield]."""
+    pytest.importorskip('ephem')
+    with _tier(weewx.almanac.PyEphemAlmanacType) as alm:
+        assert alm.hasExtras, 'fixture did not build the extras tier'
+        yield alm
+
+
+@pytest.fixture()
+def basic_almanac():
+    """The tier WeeWX falls back to when PyEphem is not installed: its own
+    weeutil almanac, which serves sunrise, sunset and the moon's phase and
+    raises for everything else.
+
+    Built explicitly rather than by deleting PyEphem, so this tier is
+    exercised on every machine -- including the ones where PyEphem happens
+    to be installed, which is every machine this suite has ever run on.
+    That is why the tier went unmodeled: a fixture that only removes the
+    Skyfield almanac can never see it."""
+    with _tier(weewx.almanac.WeeutilAlmanacType) as alm:
+        assert not alm.hasExtras, 'fixture did not build the basic tier'
+        yield alm
+
+
+class TestAlmanacTiers:
+    """The page on the two tiers below the Skyfield almanac.
+
+    can_draw() has promised since 2.3.4 that the engine-dependent panels
+    come back empty below it, but nothing rendered a panel there to check
+    it, and they only got there by throwing: the dome's meteor-shower guard
+    caught the attribute read and not the iteration over it, so every dome
+    on the page blanked with a TypeError while the report still exited 0.
+    Every panel now states the tier it needs and declines below it."""
+
+    def test_can_draw_is_false_below_the_engine(self, extras_almanac, page):
+        assert page.can_draw() is False
+
+    def test_can_draw_is_false_on_the_basic_tier(self, basic_almanac, page):
+        assert page.can_draw() is False
+
+    def test_engine_panels_decline_on_extras(self, extras_almanac, page):
+        """Empty, exactly as can_draw() False advertises.
+
+        dome_svg is here BY CHOICE, not because it cannot draw: on this
+        tier its body would produce about 5 KB of working chart -- sun,
+        moon and the seven planets placed correctly, no stars and no
+        constellation figures.  It is declined so that can_draw(), a
+        published contract since 2.3.4 that weewx-celestial 9.0 gates on,
+        keeps meaning "these five come back empty"; see _panel_guard for
+        the full argument.  Do not 'fix' this by moving dome_svg to
+        EXTRAS_PANELS without changing that contract and telling the
+        consumers -- the other four genuinely have nothing to draw here."""
+        for name in ENGINE_PANELS:
+            assert getattr(page, name)(extras_almanac) == '', name
+
+    def test_the_dome_declines_rather_than_fails_on_extras(self, extras_almanac, page):
+        """The other half of that claim, pinned so the reason stays true:
+        the dome is empty on this tier because the gate declined, not
+        because the body raised.  If it ever starts throwing here again,
+        the docstring above stops being an accurate account of why the
+        panel is blank."""
+        assert wxskyfield_sky.SkyPage.dome_svg.__wrapped__(page, extras_almanac)
+
+    def test_extras_panels_still_render_on_extras(self, extras_almanac, page):
+        """That tier is degraded, not dead: the sun and moon plates, the
+        orrery, the tables and the rest draw from PyEphem -- which is what
+        footer_html's built-in-almanac credit has always said."""
+        for name in EXTRAS_MARKUP:
+            assert_balanced(getattr(page, name)(extras_almanac))
+
+    def test_extras_panels_decline_on_basic(self, basic_almanac, page):
+        """WeeWX's own almanac serves sunrise, sunset and moon phase and
+        raises for everything else, so these decline rather than throw.
+        Ten of them threw an AttributeError per page per report cycle
+        before the basic tier was modeled at all -- the same noise the
+        dome had been making, moved onto its neighbors."""
+        for name in EXTRAS_MARKUP:
+            assert getattr(page, name)(basic_almanac) == '', name
+        assert page.sun_is_up(basic_almanac) is False
+
+    def test_basic_panels_render_on_every_tier(self, basic_almanac, page):
+        """The header, the footer and the theme need no almanac data, so
+        they draw even here -- the page is never wholly blank."""
+        assert_balanced(page.header_sub(basic_almanac))
+        assert_balanced(page.footer_html())
+        assert page.theme(basic_almanac) in ('dark', 'light')
+        assert page.palette(basic_almanac) in ('night', 'light')
+
+    @pytest.mark.parametrize('tier', ['extras', 'basic'])
+    def test_nothing_is_reported_as_a_failure(self, tier, page, caplog, request):
+        """The whole point, on BOTH tiers: not one ERROR.  A panel that
+        cannot draw is a configuration, not a failure, and the log line an
+        operator finally reads must mean something is broken."""
+        alm = request.getfixturevalue('%s_almanac' % tier)
+        with caplog.at_level(logging.ERROR, logger='wxskyfield_sky'):
+            caplog.clear()
+            for name in ENGINE_PANELS + EXTRAS_PANELS + BASIC_PANELS:
+                getattr(page, name)(alm)
+            page.footer_html()
+        assert [r.getMessage() for r in caplog.records
+                if r.levelno >= logging.ERROR] == []
+
+    @pytest.mark.parametrize('tier,phrase', [
+        ('extras', 'Skyfield almanac is not registered'),
+        ('basic', 'own sunrise/sunset formulas')])
+    def test_the_warning_is_said_once_per_process(self, tier, phrase, caplog, request):
+        """Once, however many panels ask and however many pages a report run
+        builds: sixteen domes across sixteen pages every archive interval is
+        what made the old TypeErrors unreadable, and a WARNING repeated at
+        that rate would be no better.  It names what went missing and what to
+        do, because the footer's 'see the weewxd log' points the operator at
+        exactly this line."""
+        alm = request.getfixturevalue('%s_almanac' % tier)
+        with caplog.at_level(logging.WARNING, logger='wxskyfield_sky'):
+            caplog.clear()
+            for _page_of_the_report in range(3):
+                p = wxskyfield_sky.SkyPage()
+                for name in ENGINE_PANELS + EXTRAS_PANELS:
+                    getattr(p, name)(alm)
+        warnings = [r.getMessage() for r in caplog.records if phrase in r.getMessage()]
+        assert len(warnings) == 1, warnings
+        assert 'data_services' in warnings[0]
+        assert 'can_draw()' in warnings[0]
+
+    def test_every_panel_is_assigned_a_tier(self):
+        """No panel may skip the tier question.  Add a render method that
+        takes an almanac and it must be listed above, on the rung it needs;
+        the decorator must then carry the matching `needs=`."""
+        classified = ENGINE_PANELS + EXTRAS_PANELS + BASIC_PANELS
+        # A partition, not just a cover: a name on two rungs would make the
+        # set comparison below pass while claiming two different tiers.
+        assert len(set(classified)) == len(classified)
+        found = set()
+        for name, fn in vars(wxskyfield_sky.SkyPage).items():
+            if name.startswith('_') or not callable(fn):
+                continue
+            params = inspect.signature(fn).parameters
+            required = [p for p in list(params)[1:]
+                        if params[p].default is inspect.Parameter.empty]
+            if required == ['alm']:
+                found.add(name)
+        assert found == set(classified)
+
+    @pytest.mark.parametrize('panels,floor', [
+        (ENGINE_PANELS, wxskyfield_sky.TIER_ENGINE),
+        (EXTRAS_PANELS, wxskyfield_sky.TIER_EXTRAS)])
+    def test_panels_carry_their_floor(self, panels, floor, caplog):
+        """The lists above are a claim about the decorator, not just names.
+
+        Asserting the empty answer alone would not prove it -- an ungated
+        panel throws its way to the same empty answer through the panel
+        guard, which is precisely the bug.  The proof is that nothing is
+        logged as a failure with no almanac to read at all, where the body
+        would raise on its first tag."""
+        for name in panels:
+            with _tier():
+                assert wxskyfield_sky._almanac_tier(None) < floor
+                with caplog.at_level(logging.ERROR, logger='wxskyfield_sky'):
+                    caplog.clear()
+                    out = getattr(wxskyfield_sky.SkyPage(), name)(None)
+                assert out == '' or out is False, name
+                assert [r.getMessage() for r in caplog.records
+                        if r.levelno >= logging.ERROR] == [], name
+
+    def test_the_almanac_may_arrive_as_a_keyword(self, almanac, page):
+        """A template is free to write alm=$almanac.  The gate reads the
+        almanac to decide the tier, so reading only the positional would
+        drop every gated panel to the basic tier on a station that can
+        draw them -- silently, since declining looks the same as an empty
+        answer."""
+        assert page.can_draw() is True
+        for name in ENGINE_PANELS[:1] + EXTRAS_PANELS[:1]:
+            assert getattr(page, name)(alm=almanac) != '', name
+
+    def test_a_raising_gate_still_costs_only_its_panel(self, page, monkeypatch, caplog):
+        """The gate runs inside the panel guard, not ahead of it.  It has
+        to import the almanac module to identify the registered type, and
+        a gate that raised past the guard would take the whole page down
+        for the report cycle -- the one failure the guard exists to
+        contain."""
+        def boom(alm):
+            raise ImportError("No module named 'user.wxskyfield'")
+        monkeypatch.setattr(wxskyfield_sky, '_almanac_tier', boom)
+        with caplog.at_level(logging.ERROR, logger='wxskyfield_sky'):
+            for name in ENGINE_PANELS:
+                assert getattr(page, name)(None) == '', name
+                assert 'sky_page.%s failed' % name in caplog.text
 
 
 class TestSkinFiles:

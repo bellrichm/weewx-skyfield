@@ -1,6 +1,41 @@
 weewx-skyfield change history
 -----------------------------
 
+2.x (in progress)
+-----------------
+- ACTION REQUIRED, and only on a station that uses the `$sky_page` panels
+  WITHOUT this extension's almanac registered: the sky dome now renders
+  empty there.  With PyEphem installed such a station previously got a
+  partial dome -- the sun, moon and planets placed correctly, but no stars
+  and no constellation figures -- and this release declines to draw it,
+  because `$sky_page.can_draw()` is a published contract meaning "the
+  dome, the pass chart, the satellite rows, the equation of time and the
+  moon's apsides come back empty", and an embedding skin that gates on it
+  must be able to trust that.  Register the almanac and the full dome
+  returns, stars and all: put `user.wxskyfield.WxSkyfield` in
+  data_services and a `[Skyfield]` section in weewx.conf, which is what
+  installing this extension does.  A station running the almanac -- which
+  is every normal install -- is unaffected.
+- Fixed: where a skin uses the `$sky_page` panels but this extension's
+  almanac is not registered, panels threw instead of declining.  The sky
+  dome wrote a `TypeError` into the log for every dome on the page, every
+  report cycle; on a station without PyEphem either, ten more panels wrote
+  an `AttributeError` apiece.  The report finished normally each time, so
+  the only sign was a page that looked empty.  Each panel now comes back
+  empty below the almanac it requires -- which is what
+  `$sky_page.can_draw()` has advertised since 2.3.4 -- and weewxd's log
+  says so once per process rather than once per panel per report cycle,
+  naming what is missing and how to install it.  A new troubleshooting
+  section, "Some `$sky_page` panels are empty", covers the symptom.
+- Fixed: the bundled Sky page failed to render at all, with `cannot find
+  'moon'`, on a station with neither this extension's almanac nor PyEphem.
+  Its moon card read `$almanac.moon.set` directly, where a template cannot
+  guard it; the line is now `$sky_page.moonset_html($almanac)`, which
+  renders the same text wherever it rendered before and nothing where the
+  almanac has no moonset to give.
+- Nothing changes on a station running the Skyfield almanac: every panel
+  computes and draws exactly as before.
+
 2.3.5 (2026/08/30)
 ------------------
 - The install no longer looks hung while it downloads orbital elements.  It
