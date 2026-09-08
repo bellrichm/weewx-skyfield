@@ -36,6 +36,27 @@ immediately on restart.  If it is still missing:
   [relative](configuration.md#the-sky-pages-report-stanza).
 - Look for a Cheetah error in the log naming `index.html.tmpl`.
 
+### Some `$sky_page` panels are empty
+
+The page renders but some panels are blank.  This extension's almanac is not registered, so
+the panels have nothing to draw from — the panels and the almanac install and configure
+separately, and a skin can call `$sky_page` on a station that never enabled `[Skyfield]`.
+The more of the almanac is missing, the more panels go blank: without this extension the
+dome, the pass chart, the satellite rows, the equation of time and the moon's apsides always
+decline, and on a station without PyEphem either, almost every panel does.
+
+Two things confirm it.  The page's footer credit reads *Computed with the station’s built-in
+almanac*, and weewxd's log carries one warning on the first report cycle after a restart —
+`the Skyfield almanac is not registered, so $sky_page cannot draw the sky`, or `WeeWX is
+computing $almanac with its own sunrise/sunset formulas` where PyEphem is absent too.
+
+Either way, to fill the panels in, make sure `user.wxskyfield.WxSkyfield` is in
+`data_services` and that weewx.conf has a `[Skyfield]` section with `enable = true`;
+installing this extension does both.  Then restart WeeWX and look for the `Skyfield almanac
+registered` line.  If you would rather the page simply not reserve space for the panels,
+gate them in the template on `$sky_page.can_draw()` — see
+[Panels in your own skin](panels.md).
+
 ### My almanac values didn't change after installing
 
 If the registration line is in the log, they did change — but the two almanacs agree closely
@@ -103,6 +124,20 @@ slow *every* cycle, the Sky page is the busiest page here, and
 `star_mag_limit`, `constellation_lines`, `report_timing`, or `enable = false` on the page
 while keeping every tag.
 
+## Install messages
+
+Printed by `weectl extension install`, not logged.  The install fetches the first satellite
+and comet orbital elements so their tags work from the first report cycle, which is what it
+is doing when it pauses.
+
+| Message | Meaning |
+|---|---|
+| `Fetching satellite orbital elements for … from CelesTrak…` / `Fetching comet orbital elements from the Minor Planet Center…` | Normal, and why the install pauses.  The comet file is the slower one. |
+| `Satellite elements for … are current; not fetching.` / `Comet elements in … are current; not fetching.` | Nothing to do: what is cached is younger than the interval weewxd refreshes on.  Usual on an upgrade. |
+| `CelesTrak has no current elements for X (N) -- check the NORAD number…` | A typo in `[[Satellites]]`, or an object that has decayed.  Retrying cannot fix it: correct or remove the entry.  See [Satellites](installation.md#satellites). |
+| `Could not fetch elements for X now (…); weewxd will fetch them itself.` | A network or CelesTrak problem, and true as stated: weewxd fetches missing elements at startup and about every three hours after. |
+| `Skipping satellite X: '…' is not a NORAD catalog number.` | The value in `[[Satellites]]` is not a number.  weewxd logs its own version of this at startup. |
+
 ## Startup messages
 
 | Message | Meaning |
@@ -129,6 +164,8 @@ see whether a fix took.
 |---|---|
 | `palette 'classic-…' was dropped in 2.3 and is being drawn as …` | A template still passes a `classic-` palette to a `$sky_page` panel.  It renders as the plate that replaced it; change the name to `night` or `light` — see [Panels in your own skin](panels.md). |
 | `theme 'classic-…' was dropped in 2.3 and is being drawn as …` | The same name in a report's `theme` option, which takes `dark`, `light` or `auto`.  It renders as `dark` or `light`; set one of those instead. |
+| `the Skyfield almanac is not registered, so $sky_page cannot draw the sky…` | A skin uses the `$sky_page` panels on a station where the almanac service is not running, so the five panels that need it render empty.  See [Some `$sky_page` panels are empty](#some-sky_page-panels-are-empty). |
+| `WeeWX is computing $almanac with its own sunrise/sunset formulas…` | The same, on a station without PyEphem either, so almost every panel renders empty.  Same section. |
 
 ## Element messages
 

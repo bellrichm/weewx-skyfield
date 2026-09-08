@@ -117,11 +117,27 @@ into a skin of your own.
    catalog (15 MB gzipped) are most of it, with the documentation's screenshots accounting
    for nearly all the rest.
 
-3. Install it:
+3. Install it.
+
+   On a pip install `weectl` lives in the virtual environment, so
+   activate it first (yours may sit elsewhere; `~/weewx-venv` is the usual
+   place):
+
+   ```
+   source ~/weewx-venv/bin/activate
+   weectl extension install weewx-skyfield.zip
+   ```
+
+   On a Debian or Red Hat package install there is no environment to
+   activate and `weectl` is already on the path:
 
    ```
    weectl extension install weewx-skyfield.zip
    ```
+
+   No `sudo`: that install put your account in the `weewx` group, which
+   owns the files.  If you installed WeeWX in this same login session, log
+   out and back in first so the group membership takes effect.
 
 4. Restart WeeWX, then check the log for the line that confirms your reports are now using
    Skyfield:
@@ -151,8 +167,9 @@ full history is in
 Everything this extension needs to compute is bundled — the DE421 ephemeris, the complete
 Hipparcos catalog, the constellation figures.  Two things cannot be, because they go stale:
 
-- **satellite orbital elements**, fetched from [CelesTrak](https://celestrak.org) at install,
-  at any startup that finds them missing or stale, then about every three hours;
+- **satellite orbital elements**, fetched from [CelesTrak](https://celestrak.org) at install
+  (unless what is cached is still current), at any startup that finds them missing or stale,
+  then about every three hours;
 - **comet orbital elements**, one Minor Planet Center file, on the same shape at a gentler
   cadence — about every two days.
 
@@ -165,6 +182,11 @@ every release before 2.0 had unconditionally:
     satellite_downloads = false
     comet_downloads = false
 ```
+
+A fresh install already writes both lines into `[Skyfield]`, commented out and showing their
+default of `true`: uncomment them and change the value rather than adding a second copy.  An
+upgrade never rewrites an existing `[Skyfield]`, so on a station installed earlier the lines
+are either live already or not there at all — set them as shown above.
 
 An isolated station can still use both features by maintaining the element files itself.  See
 [Satellites](https://chaunceygardiner.github.io/weewx-skyfield/installation.html#satellites)

@@ -363,16 +363,60 @@ def _palette(name: str) -> Dict[str, Any]:
     return PALETTES[name]
 
 
-def _panel_guard(fallback: Any = '') -> Callable:
+def _panel_guard(fallback: Any = '', needs: int = 0) -> Callable:
     """Wrap a $sky_page render method so a failure costs only its own panel:
     the error is logged and the panel renders as `fallback`.  Without this,
     one raising tag takes out the whole Sky page for that report cycle --
     exactly how the (since-guarded) wild skyfield event time fixed in 1.3
-    presented.  SkyPageUsageError passes through unchanged."""
+    presented.  SkyPageUsageError passes through unchanged.
+
+    `needs` is the panel's FLOOR on the tier ladder above (TIER_BASIC,
+    TIER_EXTRAS, TIER_ENGINE), read from the almanac the panel was handed.
+    Below its floor the panel returns `fallback` deliberately, and the tier
+    says so once in the log, instead of throwing its way to the same blank
+    panel: the station that found this had a Sky page but no almanac
+    service, and every report cycle wrote a TypeError per dome into a log
+    nobody was reading while the pages merely looked empty.
+
+    The TIER_ENGINE floor is a DELIBERATE TRADE, and worth stating
+    plainly because the code cannot show it: three of those five panels
+    are unusable below it anyway, but dome_svg is NOT -- on the PyEphem
+    tier it draws about 5 KB of working chart, the sun, the moon and the
+    seven planets correctly placed, with no stars and no constellation
+    figures.  We decline to draw that, for two reasons.  can_draw() is a
+    published contract that has meant "these five panels come back empty"
+    since 2.3.4, and weewx-celestial 9.0 already gates on it: let the dome
+    draw below the floor and a consumer that gated correctly hides a dome
+    that would have rendered, which is worse than not gating at all.  And
+    the tier is a misconfiguration we now diagnose in the log -- a blank
+    panel beside that line reads as "not configured", where a starless
+    night dome reads as "the sky is empty", a claim nothing on the page
+    corrects at a glance.  Moving dome_svg to TIER_EXTRAS is a one-word
+    change; it is also a change to a shipped contract, and weewx-celestial
+    would need to hear about it.
+
+    Below that floor the requirement is per panel: most panels need only a
+    body's position and a rise time (TIER_EXTRAS), and a handful -- the
+    header, the footer, the theme -- need no almanac data at all and draw
+    on any station."""
     def decorate(method: Callable) -> Callable:
         @functools.wraps(method)
         def wrapper(self, *args, **kwargs):
             try:
+                # INSIDE the try: _almanac_tier() imports the almanac module
+                # to identify the registered type, and a gate that could
+                # raise past the guard would cost the whole page the one
+                # failure this decorator exists to contain.
+                if needs > TIER_BASIC:
+                    # The almanac is the first positional for every panel
+                    # that takes one -- but read the keyword too, because a
+                    # template writing alm=$almanac would otherwise read as
+                    # no almanac at all and drop a panel to the basic tier
+                    # on a station that can draw it.
+                    tier = _almanac_tier(args[0] if args else kwargs.get('alm'))
+                    if tier < needs:
+                        _note_tier(tier)
+                        return fallback
                 return method(self, *args, **kwargs)
             except SkyPageUsageError:
                 raise
@@ -427,6 +471,28 @@ def _raw(value_helper, unit: str) -> Optional[float]:
     Times are 'unix_epoch', durations 'second'."""
     try:
         return value_helper.convert(unit).raw
+    except Exception:
+        return None
+
+
+def _tag_raw(obj: Any, path: str, unit: str) -> Optional[float]:
+    """_raw(), but reading the tag itself INSIDE the guard.
+
+    `_raw(alm.next_supermoon, 'unix_epoch')` evaluates the attribute
+    before _raw is even called, so an almanac that does not serve that
+    tag raises straight past _raw's except -- the same wrong-half mistake
+    the dome's meteor-shower guard made.  Use this wherever the tag
+    itself, and not merely its value, may be unserved.
+
+    `path` may be dotted ('moon.next_perigee'), and EVERY hop is read in
+    here: the receiver is an argument too, so `_tag_raw(alm.moon,
+    'next_perigee', ...)` would evaluate alm.moon outside the guard --
+    the identical mistake, one level shallower."""
+    try:
+        value = obj
+        for step in path.split('.'):
+            value = getattr(value, step)
+        return _raw(value, unit)
     except Exception:
         return None
 
@@ -506,6 +572,108 @@ def _find_sky():
     catalog and its magnitudes), or None."""
     a = _find_almanac_type()
     return a.sky if a is not None else None
+
+
+def _have_engine() -> bool:
+    """Whether the registered Skyfield almanac is serving this page.
+
+    THE one predicate behind both can_draw() -- the public contract an
+    embedding skin gates on -- and the top rung of the tier ladder below.
+    One function, so what can_draw() reports and what the TIER_ENGINE
+    panels actually do can never disagree.  Keeping those two in step is
+    the whole reason the ladder's top rung is drawn where it is: see
+    _panel_guard, where declining above TIER_EXTRAS is a deliberate
+    trade, not a limitation."""
+    return _find_sky() is not None
+
+
+# ── the almanac tiers a $sky_page panel can land on ──────────────────────
+#
+# A WeeWX station serves $almanac from one of three things, and the page
+# can draw a different amount on each.  Weakest first; each tier serves
+# everything the tier below it does, so a panel names only its FLOOR and
+# the guard compares.
+#
+#   TIER_BASIC    WeeWX's own weeutil almanac, which weewx/almanac.py
+#                 registers when PyEphem is not installed.  It serves
+#                 sunrise, sunset and the moon's phase, and raises for
+#                 everything else -- no body positions, no rise/set for
+#                 anything but the sun, no phase events.
+#   TIER_EXTRAS   Any almanac reporting hasExtras -- in practice PyEphem.
+#                 Bodies with alt/az/rise/set/transit/distance, the moon's
+#                 quarters, the equinox and the solstice.
+#   TIER_ENGINE   This extension's Skyfield almanac.  Everything above,
+#                 plus the star catalog, satellites, comets, meteor
+#                 showers, the equation of time and the moon's apsides.
+#
+# Written down here, and not inferred panel by panel, because inferring it
+# went wrong: the first cut of this modeled only two tiers -- engine and
+# not-engine -- and so put PyEphem's eleven panels on the basic tier,
+# where every one of them threw an AttributeError per page per report
+# cycle.  A panel added later states its floor here or it states nothing,
+# and tests/test_sky_page.py pins every panel to a rung.
+TIER_BASIC = 0
+TIER_EXTRAS = 1
+TIER_ENGINE = 2
+
+
+def _almanac_tier(alm) -> int:
+    """Which rung of the ladder is serving this page.
+
+    Two different questions, deliberately: _have_engine() reads WeeWX's
+    almanac REGISTRY, where our type sits at the head, while hasExtras is
+    WeeWX's own question about the almanac object the report built.  A
+    missing or None almanac reads as the weakest tier, so a panel called
+    without one declines instead of raising."""
+    if _have_engine():
+        return TIER_ENGINE
+    return TIER_EXTRAS if getattr(alm, 'hasExtras', False) else TIER_BASIC
+
+
+# The tiers this process has already reported -- see _note_tier.  Keyed by
+# the tier found rather than the tier wanted: one station sits on exactly
+# one rung, and every panel that declines there declines for the same
+# reason and wants the same sentence.
+_warned_tiers: set = set()
+
+
+def _note_tier(tier: int) -> None:
+    """Say ONCE per process, per tier, what this station's almanac cannot
+    draw and how to fix it.
+
+    Once, not once per panel per report cycle: the tier cannot change
+    while weewxd runs -- the almanac registers at engine startup or never
+    -- and a skin with sixteen domes would otherwise write sixteen lines
+    every archive interval, which is precisely the noise this replaced.
+    The page's own footer carries the same diagnosis permanently ('weewx-
+    skyfield is not active -- see the weewxd log'), so the log line only
+    has to be findable once, and it is what that footer points at.
+
+    WARNING, not ERROR: both lesser tiers are legitimate configurations --
+    the almanac service and the $sky_page search-list extension install
+    and configure separately, so a station can reasonably have one without
+    the other -- but a station that went to the trouble of adding the page
+    probably did not mean to get the empty half of it."""
+    if tier in _warned_tiers:
+        return
+    _warned_tiers.add(tier)
+    fix = ('Add user.wxskyfield.WxSkyfield to data_services and a [Skyfield] '
+           'section to weewx.conf (installing this extension does both), or '
+           'gate the panels on $sky_page.can_draw() to stop reserving space '
+           'for them.')
+    if tier == TIER_BASIC:
+        log.warning('WeeWX is computing $almanac with its own sunrise/sunset '
+                    'formulas -- neither the Skyfield almanac nor PyEphem is '
+                    'available -- and almost every $sky_page panel renders '
+                    'empty on it: they need body positions, rise and set '
+                    'times and phase events that this almanac does not '
+                    'serve.  ' + fix)
+    else:
+        log.warning('the Skyfield almanac is not registered, so $sky_page '
+                    'cannot draw the sky: the dome, the pass chart, the '
+                    'satellite rows, the equation of time and the moon '
+                    'apsides render empty.  The remaining panels draw from '
+                    'the almanac WeeWX has.  ' + fix)
 
 
 _HIP_NAMES: Optional[Dict[int, str]] = None
@@ -826,6 +994,20 @@ class SkyPage:
         guard: a station with no [[Satellites]] hides the section."""
         return bool(self.satellite_names())
 
+    @_panel_guard(fallback=False)
+    def can_draw(self) -> bool:
+        """Whether this page can draw the sky at all: the Skyfield almanac
+        is registered, so the dome, the pass chart and every body tag
+        draw from it; False on a lesser tier (PyEphem, the built-in
+        almanac), where dome_svg comes back empty.  PUBLIC CONTRACT like
+        satellite_names: weewx-celestial 9.0 gates the panels it places
+        beside the dome on this, so a page showing only a satellite
+        roster or the pass chart need not draw a dome to learn whether
+        it could.  The engine-dependent panels ask the same
+        _have_engine(), so False here is exactly the tier on which they
+        decline."""
+        return _have_engine()
+
     def comet_names(self) -> List[str]:
         """The configured comets' tag names ([Skyfield] [[Comets]]), in
         config order, from the registered engine.  Empty when none are
@@ -911,7 +1093,7 @@ class SkyPage:
         return q
 
     # ── template conveniences ─────────────────────────────────────────────────
-    @_panel_guard(fallback=False)
+    @_panel_guard(fallback=False, needs=TIER_EXTRAS)
     def sun_is_up(self, alm) -> bool:
         return bool(self._body(alm, 'sun')['alt'] > 0)
 
@@ -1014,7 +1196,7 @@ class SkyPage:
         return sep.join(parts).replace(
             'weewx-skyfield', '<a href="%s">weewx-skyfield</a>' % REPO_URL)
 
-    @_panel_guard()
+    @_panel_guard(needs=TIER_EXTRAS)
     def countdown_html(self, alm, palette: str = 'night') -> str:
         _palette(palette)
 
@@ -1133,12 +1315,29 @@ class SkyPage:
                        'stroke="%s" stroke-width="1"/>' % (cx, cy, R, pal['moon_ring']))
         return ''.join(out)
 
-    @_panel_guard()
+    @_panel_guard(needs=TIER_EXTRAS)
     def moon_svg(self, alm, size: int = 76, palette: str = 'night') -> str:
         c = size / 2.0
         return ('<svg width="%d" height="%d" viewBox="0 0 %d %d" aria-label="%s">%s</svg>'
                 % (size, size, size, size, self._t('Moon phase'),
                    self._moon_disc(alm, c, c, c - 4, _palette(palette))))
+
+    @_panel_guard(needs=TIER_EXTRAS)
+    def moonset_html(self, alm) -> str:
+        """The moon card's moonset line, or nothing when the almanac
+        serving the page has no moonset to give.
+
+        In Python rather than in the template because the template cannot
+        guard it: the moon card used to read $almanac.moon.set directly,
+        and on a station whose almanac serves no body binder that raised
+        through Cheetah and took the WHOLE page with it -- not the line,
+        the page.  A Cheetah #try does not help, because the <div> is
+        already written to the output stream by the time the tag fails,
+        which would leave the markup unbalanced.  The value keeps the
+        ValueHelper's own .format(), so the rendered text is unchanged
+        wherever it rendered before."""
+        return ('<div class="mpct mono">%s</div>'
+                % self._t('moonset {time}', time=alm.moon.set.format("%H:%M")))
 
     # ── sky dome ─────────────────────────────────────────────────────────────
     @staticmethod
@@ -1147,7 +1346,7 @@ class SkyPage:
         a = math.radians(az)
         return cx - r * math.sin(a), cy - r * math.cos(a)
 
-    @_panel_guard()
+    @_panel_guard(needs=TIER_ENGINE)
     def dome_svg(self, alm, palette: str = 'night', label_scale: float = 1.0) -> str:
         """label_scale grows every dome label (stars, bodies, cardinals, ring
         degrees) by that factor -- font sizes are emitted inline so the
@@ -1411,10 +1610,15 @@ class SkyPage:
         # stream outward FROM this point, so the glyph is six short rays
         # diverging from a center dot.  The label yields when space is
         # tight (must=False): a radiant is an area of sky, not a body.
+        # list() INSIDE the guard, not just the attribute read: WeeWX's
+        # built-in almanac answers any unknown name with an AlmanacBinder
+        # rather than raising, so the read succeeds and the iteration is
+        # what fails.  Guarding only the read let a TypeError past and
+        # blanked the whole dome.
         try:
-            active_showers = alm.active_meteor_showers
+            active_showers = list(alm.active_meteor_showers)
         except Exception:
-            active_showers = ()
+            active_showers = []
         for shower in active_showers:
             if shower.radiant_alt is None or shower.radiant_alt <= 0:
                 continue
@@ -1501,7 +1705,7 @@ class SkyPage:
         return ''.join(p)
 
     # ── pass chart ───────────────────────────────────────────────────────────
-    @_panel_guard()
+    @_panel_guard(needs=TIER_ENGINE)
     def pass_chart_html(self, alm, palette: str = 'night',
                         label_scale: float = 1.0) -> str:
         """The Next Visible Pass panel: the whole sky as it will stand at the
@@ -1538,7 +1742,7 @@ class SkyPage:
                                       aria=self._t('Pass sky chart'))
 
     # ── rise/set ribbons ─────────────────────────────────────────────────────
-    @_panel_guard()
+    @_panel_guard(needs=TIER_EXTRAS)
     def ribbons_svg(self, alm, palette: str = 'night') -> str:
         import weeutil.weeutil
         pal = _palette(palette)
@@ -1636,7 +1840,7 @@ class SkyPage:
         return ''.join(p)
 
     # ── orrery ───────────────────────────────────────────────────────────────
-    @_panel_guard()
+    @_panel_guard(needs=TIER_EXTRAS)
     def orrery_svg(self, alm, palette: str = 'night') -> str:
         pal = _palette(palette)
         S, cx = 480, 240
@@ -1744,7 +1948,7 @@ class SkyPage:
         return ''.join(p)
 
     # ── analemma ─────────────────────────────────────────────────────────────
-    @_panel_guard()
+    @_panel_guard(needs=TIER_EXTRAS)
     def analemma_svg(self, alm, palette: str = 'night') -> str:
         import calendar
         pal = _palette(palette)
@@ -1843,7 +2047,7 @@ class SkyPage:
         return ''.join(p)
 
     # ── equation of time ─────────────────────────────────────────────────────
-    @_panel_guard()
+    @_panel_guard(needs=TIER_ENGINE)
     def eot_svg(self, alm, palette: str = 'night') -> str:
         """The equation of time across the year: sundial minus clock (the
         USNO sign -- positive above the zero line means the sundial runs
@@ -1929,7 +2133,7 @@ class SkyPage:
         return ''.join(p)
 
     # ── sun path ─────────────────────────────────────────────────────────────
-    @_panel_guard()
+    @_panel_guard(needs=TIER_EXTRAS)
     def sunpath_svg(self, alm, palette: str = 'night') -> str:
         """The sun's altitude/azimuth arc across today, midnight to midnight,
         over twilight-depth bands below the horizon; the moon's path dashed.
@@ -2127,7 +2331,7 @@ class SkyPage:
             return 'astro'
         return 'night'
 
-    @_panel_guard()
+    @_panel_guard(needs=TIER_EXTRAS)
     def daylength_svg(self, alm, palette: str = 'night') -> str:
         """Sunrise, sunset and the twilight depths for every week of the
         year, columns of local CLOCK time -- the DST steps are real and
@@ -2242,7 +2446,7 @@ class SkyPage:
         return ''.join(p)
 
     # ── the lunar month ──────────────────────────────────────────────────────
-    @_panel_guard()
+    @_panel_guard(needs=TIER_EXTRAS)
     def lunation_svg(self, alm, palette: str = 'night') -> str:
         """The current lunation, previous new moon to next, as a strip of
         thirty phase discs with the principal phases dated and today's disc
@@ -2296,7 +2500,7 @@ class SkyPage:
         return ''.join(p)
 
     # ── chips and table ──────────────────────────────────────────────────────
-    @_panel_guard()
+    @_panel_guard(needs=TIER_EXTRAS)
     def chips_html(self, alm, palette: str = 'night') -> str:
         pal = _palette(palette)
         body_color = pal['body']
@@ -2407,7 +2611,7 @@ class SkyPage:
             return self._t('in {n} day', n=1)
         return self._t('in {n} days', n=n)
 
-    @_panel_guard()
+    @_panel_guard(needs=TIER_ENGINE)
     def satellites_html(self, alm, palette: str = 'night') -> str:
         """One row per configured satellite: its next visible pass -- the
         go-watch question -- in the planet chips' idiom.  A satellite with
@@ -2439,7 +2643,7 @@ class SkyPage:
                            '<div class="chipsub mono">%s</div>' % sub if sub else ''))
         return '\n'.join(rows)
 
-    @_panel_guard()
+    @_panel_guard(needs=TIER_ENGINE)
     def moon_apsides_html(self, alm) -> str:
         """The lunation panel's apsis footer: the quiet next-perigee /
         next-apogee line, topped by a supermoon callout when the NEXT
@@ -2450,8 +2654,14 @@ class SkyPage:
         and leaves with it.  Colors come from the theme's CSS variables,
         not the palette, so the same markup serves both plates."""
         parts = []
-        full = _raw(alm.next_full_moon, 'unix_epoch')
-        supermoon = _raw(alm.next_supermoon, 'unix_epoch')
+        # _tag_raw, not _raw: next_supermoon and the moon's apsides are
+        # engine tags, and an almanac that does not serve one raises on the
+        # attribute read, outside _raw's reach.  The TIER_ENGINE floor keeps
+        # the lesser almanacs out of here; this keeps the panel honest if
+        # some future almanac serves only part of the set -- so the moon
+        # hop goes through _tag_raw too, not just the tag after it.
+        full = _tag_raw(alm, 'next_full_moon', 'unix_epoch')
+        supermoon = _tag_raw(alm, 'next_supermoon', 'unix_epoch')
         if (full is not None and supermoon is not None
                 and abs(supermoon - full) <= 60.0):
             parts.append('<p class="supermoon">%s</p>'
@@ -2459,12 +2669,12 @@ class SkyPage:
                                    date=self._date(full)))
         parts.append('<p class="apsis mono">%s &#183; %s</p>'
                      % (self._t('perigee {date}',
-                                date=self._date_hm(_raw(alm.moon.next_perigee, 'unix_epoch'))),
+                                date=self._date_hm(_tag_raw(alm, 'moon.next_perigee', 'unix_epoch'))),
                         self._t('apogee {date}',
-                                date=self._date_hm(_raw(alm.moon.next_apogee, 'unix_epoch')))))
+                                date=self._date_hm(_tag_raw(alm, 'moon.next_apogee', 'unix_epoch')))))
         return '\n'.join(parts)
 
-    @_panel_guard()
+    @_panel_guard(needs=TIER_EXTRAS)
     def table_html(self, alm, palette: str = 'night') -> str:
         pal = _palette(palette)
         body_color = pal['body']

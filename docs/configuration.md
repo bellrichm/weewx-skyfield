@@ -27,13 +27,14 @@ The installer writes the first two.  The other two are optional.
 
 ## The `[Skyfield]` section
 
-The installer adds this to `weewx.conf` with these defaults:
+The installer adds this to `weewx.conf`, with a comment above every line explaining
+what it does (elided here):
 
 ```ini
 [Skyfield]
+    #satellite_downloads = true
+    #comet_downloads = true
     enable = true
-    satellite_downloads = true
-    comet_downloads = true
     [[Satellites]]
         iss = 25544
         tiangong = 48274
@@ -42,11 +43,18 @@ The installer adds this to `weewx.conf` with these defaults:
         hale_bopp = C/1995 O1
 ```
 
+An option that merely selects a default is written **commented out**, with the default
+shown.  Nothing is lost: with the line commented, the value in force is the extension's
+own — so if a later release picks a better default, your station follows it.  Uncomment
+one to pin your station to a value of your own.  `enable` and the two lists are live
+because none of them is a default: the first is the switch you came for, and the other
+two are content to edit.
+
 | Option | Default | Effect |
 |---|---|---|
 | `enable` | `true` | Register the Skyfield almanac.  Set `false` and reports fall back to WeeWX's built-in PyEphem/weeutil almanac — the extension stays installed and does nothing. |
-| `satellite_downloads` | `true` | Fetch satellite orbital elements from CelesTrak: at install, at any startup finding them missing or stale, then about every three hours.  See [Satellites](installation.md#satellites). |
-| `comet_downloads` | `true` | Fetch the MPC's CometEls.txt: at install, at any startup finding it missing or stale, then about every two days.  See [Comets](installation.md#comets). |
+| `satellite_downloads` | `true` | Fetch satellite orbital elements from CelesTrak: at install (unless the cached elements are still current), at any startup finding them missing or stale, then about every three hours.  See [Satellites](installation.md#satellites). |
+| `comet_downloads` | `true` | Fetch the MPC's CometEls.txt: at install (unless the cached file is still current), at any startup finding it missing or stale, then about every two days.  See [Comets](installation.md#comets). |
 | `[[Satellites]]` | ISS, Tiangong | `tag name = NORAD catalog number`, one line each.  This one list drives both the [satellite tags](tag-index.md#satellite-tags) and the fetch list. |
 | `[[Comets]]` | Halley, Hale-Bopp | `tag name = MPC designation`, one line each — `tsuchinshan_atlas = C/2023 A3`. |
 
@@ -106,9 +114,9 @@ adds under `[StdReport]`:
 ```ini
 [StdReport]
     [[SkyfieldReport]]
-        skin = Skyfield
-        enable = true
         HTML_ROOT = skyfield
+        enable = true
+        skin = Skyfield
 ```
 
 Every option below can be set there, overriding the bundled `skin.conf`.  Setting them in

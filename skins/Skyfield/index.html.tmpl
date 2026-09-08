@@ -46,7 +46,7 @@
     <div class="mlabel">
       <div class="mname">$almanac.moon_phase</div>
       <div class="mpct mono">$gettext("{pct}% illuminated").format(pct=$almanac.moon_fullness)</div>
-      <div class="mpct mono">$gettext("moonset {time}").format(time=$almanac.moon.set.format("%H:%M"))</div>
+      $sky_page.moonset_html($almanac)
     </div>
     $sky_page.moon_svg($almanac, palette=$palette)
   </div>

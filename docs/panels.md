@@ -147,7 +147,21 @@ chart depicts is ahead, in progress or over without consulting a feed whose *nex
 has already rolled on.  These hooks are a
 stable contract, and so are `$sky_page.satellite_names()` and `$sky_page.comet_names()`,
 through which an embedding skin enumerates the configured satellites and comets — the tag
-names in config order, empty when none are configured or the almanac is not registered.
+names in config order, empty when none are configured or the almanac is not registered —
+and `$sky_page.can_draw()` (2.3.4 and later), True when the Skyfield almanac is registered
+and the page can draw the sky, False on a lesser tier.
+It is the same test the dome stands on, without drawing anything, so a page that places
+only a satellite roster or the pass chart beside someone else's dome can gate those panels
+without rendering a dome to learn whether it could.
+
+Five panels need this extension's almanac and return the empty string without it —
+`dome_svg`, `pass_chart_html`, `satellites_html`, `eot_svg` and `moon_apsides_html`, the set
+`can_draw()` reports on.  The rest need only an almanac that serves body positions and rise
+times, so they draw wherever WeeWX has one.  Either way a panel that cannot get what it
+needs comes back empty instead of raising, and weewxd's log says so once — see
+[Some `$sky_page` panels are empty](troubleshooting.md#some-sky_page-panels-are-empty).
+The answer is to install the almanac; gate panels on `can_draw()` if you would rather your
+page reserve no space for them.
 
 ## The next visible pass chart — `pass_chart_html`
 
@@ -301,6 +315,10 @@ $sky_page.moon_svg($almanac)
 The moon at its true phase, waxing and waning on the correct limb.  The optional `size`
 argument (default 76) sets the SVG's intrinsic pixel size; with the bundled stylesheet's
 `svg{width:100%}` rule the disc fills its container, so size the wrapping element.
+
+The bundled page labels the disc with `$sky_page.moonset_html($almanac)`, a one-line
+`<div>` giving tonight's moonset in the report's own time format, and nothing at all where
+the almanac has no moonset to give.
 
 ## The lunar month — `lunation_svg`
 

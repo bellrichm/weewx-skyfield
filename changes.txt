@@ -1,6 +1,84 @@
 weewx-skyfield change history
 -----------------------------
 
+2.x (in progress)
+-----------------
+- ACTION REQUIRED, and only on a station that uses the `$sky_page` panels
+  WITHOUT this extension's almanac registered: the sky dome now renders
+  empty there.  With PyEphem installed such a station previously got a
+  partial dome -- the sun, moon and planets placed correctly, but no stars
+  and no constellation figures -- and this release declines to draw it,
+  because `$sky_page.can_draw()` is a published contract meaning "the
+  dome, the pass chart, the satellite rows, the equation of time and the
+  moon's apsides come back empty", and an embedding skin that gates on it
+  must be able to trust that.  Register the almanac and the full dome
+  returns, stars and all: put `user.wxskyfield.WxSkyfield` in
+  data_services and a `[Skyfield]` section in weewx.conf, which is what
+  installing this extension does.  A station running the almanac -- which
+  is every normal install -- is unaffected.
+- Fixed: where a skin uses the `$sky_page` panels but this extension's
+  almanac is not registered, panels threw instead of declining.  The sky
+  dome wrote a `TypeError` into the log for every dome on the page, every
+  report cycle; on a station without PyEphem either, ten more panels wrote
+  an `AttributeError` apiece.  The report finished normally each time, so
+  the only sign was a page that looked empty.  Each panel now comes back
+  empty below the almanac it requires -- which is what
+  `$sky_page.can_draw()` has advertised since 2.3.4 -- and weewxd's log
+  says so once per process rather than once per panel per report cycle,
+  naming what is missing and how to install it.  A new troubleshooting
+  section, "Some `$sky_page` panels are empty", covers the symptom.
+- Fixed: the bundled Sky page failed to render at all, with `cannot find
+  'moon'`, on a station with neither this extension's almanac nor PyEphem.
+  Its moon card read `$almanac.moon.set` directly, where a template cannot
+  guard it; the line is now `$sky_page.moonset_html($almanac)`, which
+  renders the same text wherever it rendered before and nothing where the
+  almanac has no moonset to give.
+- Nothing changes on a station running the Skyfield almanac: every panel
+  computes and draws exactly as before.
+
+2.3.5 (2026/08/30)
+------------------
+- The install no longer looks hung while it downloads orbital elements.  It
+  now says what it is fetching -- satellite elements from CelesTrak, comet
+  elements from the Minor Planet Center -- before each download rather than
+  after it, so the wait explains itself.
+- An install no longer refetches elements the station already has and that
+  are still current: a cached file younger than the interval weewxd itself
+  refreshes on (three hours for satellites, two days for comets) is left
+  alone.  A reinstall, or an upgrade over a running station, therefore
+  usually makes no network request at all and finishes as quickly as any
+  other extension install.
+- A satellite CelesTrak does not know is now reported as something to fix
+  rather than as something weewxd will retry: the message names the
+  satellite and its NORAD number and points at `[[Satellites]]`, because a
+  mistyped catalog number fails identically for ever.  Genuine network
+  failures still say weewxd will fetch the elements itself, which is true.
+- One satellite's failed fetch no longer skips the satellites after it in
+  the list.
+
+2.3.4 (2026/08/30)
+------------------
+- The `[Skyfield]` stanza a fresh install writes into weewx.conf explains
+  itself.  Every option now arrives with a comment above it saying what it
+  does, where the installer used to write bare `key = value` lines; the
+  `[[SkyfieldReport]]` stanza gains the same.  `satellite_downloads` and
+  `comet_downloads` are written COMMENTED OUT, with their default shown:
+  neither is a setting so much as a choice of default, and a live value
+  freezes that station on today's answer for ever, because an upgrade
+  fills in absent keys only and never rewrites one.  Left commented, the
+  extension's own value governs -- including a better one a later release
+  might bring.  `enable`, `[[Satellites]]` and `[[Comets]]` stay live:
+  the first is the switch you came for, the other two are content to edit.
+  Existing installs are untouched -- this is what a FRESH install writes,
+  and the stanza already in your weewx.conf is never rewritten.
+- New for embedding skins: $sky_page.can_draw(), True when the Skyfield
+  almanac is registered and the page can draw the sky, False on a lesser
+  tier -- the same test dome_svg stands on, without drawing anything.
+  weewx-celestial 9.0 gates the panels it places beside the dome on it,
+  so a page showing only a satellite roster or the pass chart no longer
+  has to draw a dome to learn whether it could.  Public contract, like
+  satellite_names().
+
 2.3.3 (2026/08/16)
 ------------------
 - Comets work on Skyfield 1.47 through 1.50 again.  On those versions a
