@@ -77,7 +77,34 @@ map.  To restore the sparse pre-2.0 look:
 
 ## Coming from 2.x
 
-### One thing needs your attention, and only if you embed the panels
+### If you embed the panels, three things need your attention
+
+**The dome declines to draw without this extension's almanac (2.4).**  On a station that
+uses the `$sky_page` panels while the almanac service is *not* running — `enable = false`,
+or the service missing from `data_services` — the sky dome now renders empty rather than
+drawing a partial chart from PyEphem.  `$sky_page.can_draw()` is a published contract
+meaning those five panels come back empty, and a skin that gates on it has to be able to
+trust it.  Register the almanac and the full dome returns.  A station running the almanac —
+which is every normal install — is unaffected.
+
+**The panels' marks carry classes now, not colors (2.4).**  What was `fill="#D3A94C"` on a
+mark is `class="sky-fill-brass"`, marks that already carried a class carry the role class
+beside it, and the charts' gradient and clipPath ids end in the plate name.  Two things this
+can break in a skin of your own, neither of them the rendering:
+
+- *Tests that assert on the markup.*  Grep your whole tree — a consumer's tests are where its
+  picture of this markup is written down.
+- *Live JavaScript that reads a mark's drawn paint,* which fails silently.
+  `el.getAttribute('fill')` returns `null` now; use `getComputedStyle(el).fill`, or read the
+  role classes, whose two states are one pair exchanged.  The `data-body`, `data-sunlit`,
+  `data-bright` and `data-dome-ts` hooks are untouched and remain the durable way to find a
+  mark.
+
+**Two CSS rules to pick up if you copied rules piecemeal (2.4).**  `.bandlab`, for the labels
+that sit on the twilight bands, and `.dot`, which paints the chip and table swatches from the
+custom property the markup now carries — without that one the swatches have no color at all.
+Taking the whole of `sky.css` needs nothing.  See [Restyling the
+marks](panels.md#restyling-the-marks--the-role-classes).
 
 **The `classic-night` and `classic-light` palettes are gone (2.3).**  They held the body
 colors used before 1.5.  A skin still passing one to a `$sky_page` panel — or naming one in a
@@ -89,6 +116,7 @@ it.  If you have never passed a `palette` argument, there is nothing to do.
 
 | Release | Worth knowing |
 |---|---|
+| **2.4** | Every mark in an SVG panel carries a class naming its role, and each panel brings its palette as CSS defaults of zero specificity — so an embedding skin can repaint the charts, including for a reader who switches themes in the browser.  See the three items above.  Three label colors changed to clear their contrast floors: on the dark theme, The Sun's Path's hour numbers are lighter, which is the release's only visible change to the default look. |
 | **2.3** | Rise & Set, The Sun's Path and The Solar Year are readable on the light theme — their bars, ticks, arcs and traces are drawn over twilight bands and had taken colors chosen for a panel surface.  The manual now [shows](sky-page.md#the-two-plates) that theme.  The `classic-night` and `classic-light` palettes are dropped: a skin that passes one keeps rendering — it draws the current plate and logs a warning — but the pre-1.5 body colors are gone. |
 | **2.2** | The sky charts are easier to read: the altitude rings and the cross through the zenith were invisible against the dome and now have their own color, and the small labels are lifted to a readable contrast.  Nothing to configure — but a skin that [embeds the panels](panels.md) and copied individual CSS rules should pick up the new `skylab` class. |
 | **2.1** | Comets (`[[Comets]]`, Halley and Hale-Bopp by default), the twelve major meteor showers, moon perigee/apogee and `next_supermoon`, Earth's perihelion/aphelion, solar time and the equation of time.  Unit-aware `distance`/`distance_from_sun` twins and `illumination`. |
@@ -108,7 +136,7 @@ If you run the author's other extensions, these are the floors that matter:
 | Extension | Version | Why |
 |---|---|---|
 | [weewx-loopdata](https://github.com/chaunceygardiner/weewx-loopdata) | 6.9 or later | Earlier versions could cache a temporarily-unavailable satellite field's `N/A` until the day rolled over, instead of recovering the moment fresh elements arrive. |
-| [weewx-celestial](https://github.com/chaunceygardiner/weewx-celestial) | 8.1 or later | Its live dome and pass chart consume this extension's `data-body` / `data-sunlit` / `data-bright` hooks and the `satellite_names()` / `comet_names()` contract.  celestial 8.3.3's pass chart reads the `data-rise` / `data-set` window this release adds; on an older weewx-skyfield it falls back to the loop feed's window, i.e. its pre-8.3.3 behavior. |
+| [weewx-celestial](https://github.com/chaunceygardiner/weewx-celestial) | **9.1 or later** with weewx-skyfield 2.4 | Its live dome and pass chart consume this extension's `data-body` / `data-sunlit` / `data-bright` hooks and the `satellite_names()` / `comet_names()` contract, all of which are unchanged.  But its dome also reads how the station *drew* the pass marker in order to flip it between sunlit and in-shadow, and before 9.1 it read that from the marker's `fill` and `stroke` attributes, which 2.4 replaces with classes.  Under an older celestial the marker stops flipping — silently, with nothing logged; nothing else on either page is affected.  Install both and restart.  (celestial 8.3.3 and later read the `data-rise` / `data-set` window 2.3 added; older ones fall back to the loop feed's.) |
 
 Only the historical celestial 3.x — which embedded this same almanac engine — needs
 `replace_builtin_almanac = false` when run alongside weewx-skyfield.  Since celestial 6.0 it

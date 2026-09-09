@@ -85,7 +85,10 @@ into a skin of your own.
   satellite pass predictions and a countdown row for the next equinox, eclipse and meteor
   shower — on a night plate or a paper one (`theme = light`, or `auto` to follow the sun;
   [both are pictured](https://chaunceygardiner.github.io/weewx-skyfield/sky-page.html#the-two-plates)).
-  Every panel can be embedded in your own skin.
+  Every panel can be embedded in your own skin — and, since 2.4, restyled from
+  its stylesheet: every mark carries a class naming its role, so an embedding
+  skin can repaint the charts, including for a reader who switches between
+  light and dark in the browser.
   → [Tour the page](https://chaunceygardiner.github.io/weewx-skyfield/sky-page.html) ·
   [embed its panels](https://chaunceygardiner.github.io/weewx-skyfield/panels.html)
 
@@ -155,9 +158,9 @@ The manual has the full steps, including Debian package installs, the
 and what to do when
 [something is not working](https://chaunceygardiner.github.io/weewx-skyfield/troubleshooting.html).
 
-Upgrading from an earlier release?  Three things need attention — the removed `stars`
-option, the one tag whose units changed, and the `classic-` palettes dropped in 2.3 — and all
-three are on the
+Upgrading from an earlier release?  A handful of things need attention — the removed
+`stars` option, the one tag whose units changed, the `classic-` palettes dropped in 2.3, and
+what 2.4 changed for skins that embed the panels — and all of them are on the
 [Upgrading page](https://chaunceygardiner.github.io/weewx-skyfield/upgrading.html).  The
 full history is in
 [changes.txt](https://github.com/chaunceygardiner/weewx-skyfield/blob/main/changes.txt).
@@ -219,8 +222,9 @@ shadow — and it goes on to cross the exact center of the dome dark, no longer 
 
 ## Relationship to other extensions
 
-- [weewx-celestial](https://github.com/chaunceygardiner/weewx-celestial) (same author, 8.1 or
-  later) ships a live celestial page driven by weewx-loopdata almanac fields.  Since celestial
+- [weewx-celestial](https://github.com/chaunceygardiner/weewx-celestial) (same author, 9.1 or
+  later with weewx-skyfield 2.4) ships a live celestial page driven by weewx-loopdata almanac
+  fields.  Since celestial
   6.0 it runs no service and computes nothing itself, so the two extensions coexist with no
   configuration — weewx-skyfield is the atlas, weewx-celestial the live instrument.  (Only the
   historical celestial 3.x, which embedded this same almanac engine, needs
@@ -288,9 +292,9 @@ weewx-skyfield stands on the work of others:
 
 weewx-skyfield is licensed under the GNU Public License v3.
 
-The bundled star catalog (`wxskyfield_stars.dat.gz`) contains data from the Hipparcos and
-Tycho Catalogues, which ESA distributes under the
-[CC BY-NC 3.0 IGO](https://creativecommons.org/licenses/by-nc/3.0/igo/) licence.  Credit: ESA.
+The bundled star catalog (`wxskyfield_stars.dat.gz`) contains data from
+the Hipparcos and Tycho Catalogues, which ESA distributes under the
+[CC BY-NC 3.0 IGO](https://creativecommons.org/licenses/by-nc/3.0/igo/) license.  Credit: ESA.
 
 The bundled constellation figures (`wxskyfield_lines.dat`) are distilled from the
 [Stellarium](https://stellarium.org) project's "modern" sky culture, whose data is licensed

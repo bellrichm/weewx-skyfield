@@ -96,7 +96,7 @@ See [Live-updating pages](live-pages.md).
 `distance` and `distance_from_sun` report in `group_distance_astronomical`, a group this
 extension registers with WeeWX.  Its display unit is the astronomical unit in *every* unit
 system — US, metric or metricwx — because interplanetary distances read naturally in AU and
-absurdly in ten-digit kilometres.  The default rendering is `1.8588 AU`.
+absurdly in ten-digit kilometers.  The default rendering is `1.8588 AU`.
 
 Converting is per-tag and needs no configuration: `$almanac.moon.distance.km`,
 `$almanac.mars.distance.mile`.  Restyling the whole family is a
@@ -141,7 +141,7 @@ The exceptions, which you must call:
 | `$almanac.sun.visible_change()` | Takes an argument: `visible_change(2)` compares against two days ago. |
 | `$almanac.separation(a, b)` | Takes two bodies. |
 | `$almanac(...)` | The almanac itself, to time-travel or set a horizon. |
-| `$almanac.sun(use_center=1)` | A body, to measure to its centre. |
+| `$almanac.sun(use_center=1)` | A body, to measure to its center. |
 
 ## When there is no answer
 

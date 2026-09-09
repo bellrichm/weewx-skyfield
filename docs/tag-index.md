@@ -183,7 +183,7 @@ Each plain-float angle has a unit-aware twin; both are listed, twin second.
 
 | Tag | Type | Since | Notes |
 |---|---|---|---|
-| `next_perigee` | time | 2.1 | The moon's closest approach, on the geometric centre-to-centre distance the published apsis tables use. |
+| `next_perigee` | time | 2.1 | The moon's closest approach, on the geometric center-to-center distance the published apsis tables use. |
 | `previous_perigee` | time | 2.1 | |
 | `next_apogee` | time | 2.1 | The moon's farthest approach. |
 | `previous_apogee` | time | 2.1 | |
@@ -288,7 +288,7 @@ almanac you then read tags from.
 |---|---|
 | `almanac_time` | Evaluate every tag at another instant — the time-travel idiom behind calendars and analemmas.  `$almanac(almanac_time=$almanac.moon.next_perigee.raw).moon.distance.km` |
 | `horizon` | A custom horizon in degrees, treated as a *geometric* altitude with no refraction, per the USNO twilight definitions.  For satellites it clips the pass. |
-| `use_center` | Measure to the body's centre rather than its limb: `$almanac(horizon=-6).sun(use_center=1).rise`. |
+| `use_center` | Measure to the body's center rather than its limb: `$almanac(horizon=-6).sun(use_center=1).rise`. |
 | `pressure` | Station pressure for the refraction model; `pressure=0` turns refraction off entirely. |
 | `temperature` | Station temperature for the refraction model. |
 

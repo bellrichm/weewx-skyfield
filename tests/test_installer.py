@@ -190,7 +190,7 @@ class TestInstallerConfig:
         applied when the key is absent -- and once the installer stops
         writing it live, that fallback is the only thing that governs.
 
-        WHICH SIDE MOVES WHEN THIS FAILS IS A JUDGEMENT, NOT A FORMALITY.
+        WHICH SIDE MOVES WHEN THIS FAILS IS A JUDGMENT, NOT A FORMALITY.
         Do not make it pass by editing the commented-out assignment to
         match the code.  While the option was written live, the installer's
         value is what every fresh install has actually been running and the

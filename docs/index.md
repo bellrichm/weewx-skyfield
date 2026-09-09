@@ -75,7 +75,9 @@ be dropped into a skin of your own.
   satellite pass predictions and a countdown row for the next equinox, eclipse and meteor
   shower — on a night plate or a paper one (`theme = light`, or `auto` to follow the sun).
   [Tour the page](sky-page.md), see [both plates](sky-page.md#the-two-plates), or
-  [embed its panels in your own skin](panels.md).
+  [embed its panels in your own skin](panels.md) — and, since 2.4,
+  [restyle them](panels.md#restyling-the-marks--the-role-classes) from that skin's own
+  stylesheet, including for a reader who switches themes in the browser.
 - **Speaks your language** — new in 1.12: the Sky page, its panels and the almanac's body
   names (`$almanac.moon.label`) are translatable through WeeWX's own lang files, with
   per-string English fallback; complete German, French and Danish (all from native
@@ -156,7 +158,8 @@ later): its *almanac fields* — report almanac tags with the `$` removed — ar
 against the registered almanac (this extension's, once installed) on every loop packet and
 published in `loop-data.txt` for the page's JavaScript to pick up.  One computation engine
 serves the report tags and the live values, so they always agree.
-[weewx-celestial](https://github.com/chaunceygardiner/weewx-celestial) (8.1 or later) is a
+[weewx-celestial](https://github.com/chaunceygardiner/weewx-celestial) (9.1 or later with
+weewx-skyfield 2.4) is a
 complete worked example — a live Geocentric panel built entirely from loopdata almanac fields — and the
 paloaltoweather.com pages above update the same way.
 
@@ -193,8 +196,9 @@ weewx-skyfield stands on the work of others: **Brandon Rhodes**, author of the
 [Skyfield](https://rhodesmill.org/skyfield/) astronomy library that performs every computation
 in this extension; **NASA's Jet Propulsion Laboratory (JPL)**, whose DE421 planetary ephemeris
 provides the positions of the sun, moon, and planets; the **European Space Agency (ESA)**,
-whose Hipparcos mission produced the star catalog, and the **CDS (Strasbourg astronomical Data
-Centre)**, which distributes it via VizieR; **[CelesTrak](https://celestrak.org)**
+whose Hipparcos mission produced the star catalog, and the
+**CDS (Strasbourg astronomical Data Centre)**, which distributes it via
+VizieR; **[CelesTrak](https://celestrak.org)**
 (T.S. Kelso), whose GP element service supplies the satellite orbital elements; the
 **[Minor Planet Center](https://www.minorplanetcenter.net)**, whose CometEls.txt supplies
 the comet orbital elements; the
@@ -215,9 +219,9 @@ leaving holes in them — which is why the dome now draws the complete catalog.
 ## Licensing
 
 weewx-skyfield is Copyright (C)2022-2026 by John A Kline and licensed under the GNU Public
-License v3.  The bundled star catalog contains data from the Hipparcos and Tycho
-Catalogues, which ESA distributes under the
-[CC BY-NC 3.0 IGO](https://creativecommons.org/licenses/by-nc/3.0/igo/) licence.  Credit: ESA.
+License v3.  The bundled star catalog contains data from
+the Hipparcos and Tycho Catalogues, which ESA distributes under the
+[CC BY-NC 3.0 IGO](https://creativecommons.org/licenses/by-nc/3.0/igo/) license.  Credit: ESA.
 The bundled constellation figures are distilled from the
 [Stellarium](https://stellarium.org) project's "modern" sky culture, whose data is licensed
 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).  Credit: the Stellarium

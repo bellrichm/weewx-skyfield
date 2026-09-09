@@ -40,7 +40,7 @@ The four moments that bracket a day, using the USNO's geometric definitions:
 </table>
 ```
 
-`use_center=1` measures to the sun's centre rather than its upper limb, which is what the
+`use_center=1` measures to the sun's center rather than its upper limb, which is what the
 twilight definitions specify.  See [Accuracy](accuracy.md#differences-from-pyephem) for why
 no refraction is applied to a custom horizon.
 
