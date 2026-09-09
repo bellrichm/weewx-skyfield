@@ -770,7 +770,7 @@ class TestReadmeButtons:
                 'assets/btn-download.svg': 'Download weewx-skyfield.zip',
                 'assets/btn-issue.svg': 'Report an issue'}
 
-    def test_every_referenced_button_exists_and_is_labelled(self):
+    def test_every_referenced_button_exists_and_is_labeled(self):
         with open(os.path.join(REPO_ROOT, 'README.md'), 'r') as f:
             readme = f.read()
         referenced = dict(re.findall(r'!\[([^\]]*)\]\((assets/[^)]+)\)', readme))

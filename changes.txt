@@ -1,8 +1,8 @@
 weewx-skyfield change history
 -----------------------------
 
-2.x (in progress)
------------------
+2.4 (2026/09/08)
+----------------
 - ACTION REQUIRED, and only on a station that uses the `$sky_page` panels
   WITHOUT this extension's almanac registered: the sky dome now renders
   empty there.  With PyEphem installed such a station previously got a
@@ -35,6 +35,97 @@ weewx-skyfield change history
   almanac has no moonset to give.
 - Nothing changes on a station running the Skyfield almanac: every panel
   computes and draws exactly as before.
+- Every mark in an SVG panel now carries a CSS class naming its role -- a
+  star dot is `sky-fill-ink`, Mars's bar is `sky-fill-body-mars` -- and
+  each panel carries the palette it was asked for as CSS defaults of zero
+  specificity rather than as colors written onto each mark.  A skin that
+  does nothing renders exactly as before, and a skin that writes one rule
+  repaints that role everywhere.  This is what a per-reader light/dark
+  switch needs: the SVG is written once per report cycle, and the reader
+  may flip themes hours later.  The full class list is in the manual, on
+  the panels page, and is a published contract like `can_draw()`.
+- Both plates now write the casing element under the marks that cross the
+  twilight bands.  The night plate needs no casing and still paints none --
+  nothing about the dark page changes -- but the element has to be there,
+  because markup a plate declines to write is markup a reader who flips to
+  the light theme can never get back, and that casing is what carries 2.3's
+  contrast work.
+- Both plates' dome gradients now ramp through the same three stops.  A
+  gradient stop's position is markup rather than styling and so cannot
+  follow a theme switch; the light plate's new middle stop is its own
+  ramp's color at that position, so the dome looks as it did.
+- The light plate no longer defines a color for Pluto.  No panel has ever
+  drawn Pluto -- the charts plot the classical planets, Mercury through
+  Neptune -- so the value painted nothing while making the contrast audits
+  report on a mark that does not exist.  `$almanac.pluto` is untouched and
+  complete, as are the other tags.
+- The chip, satellite and table swatches follow a theme too.  Those are
+  HTML rather than SVG and cannot carry their own `<style>`, so their color
+  still rides inline -- but as the custom property `--sky-dot` rather than
+  as `background` itself, which an inline value would have made immovable
+  by any stylesheet rule.  `sky.css` reads the variable, and every chip and
+  table body row now carries `data-body` naming its body, so a skin can aim
+  a rule at the body rather than at translated text.  A skin that copies
+  rules from sky.css piecemeal needs its new `.dot` rule, or its swatches
+  lose their color.
+- Fixed: two sky domes on one page collided on their gradient's id, so the
+  second one painted its sky with the first one's gradient -- a light dome
+  placed after a night dome drew a navy sky under light-plate stars.  The
+  charts' gradient and clipPath ids now end in the plate name.  This
+  predates 2.4 and needed a page that draws two domes, which nothing
+  shipped here does; it matters now because restyling makes that page worth
+  building.
+- Stations running weewx-celestial want celestial 9.1 alongside this
+  release: install both, then restart WeeWX.  Celestial's live dome reads
+  how the station drew the pass marker in order to flip it between its
+  sunlit and in-shadow looks, and before 9.1 it read that from the marker's
+  `fill` and `stroke` attributes, which this release replaces with classes.
+  With only one of the two installed the dot stops flipping until the other
+  arrives -- nothing else on either page is affected.
+- For skins that READ the panels' markup: the paint attributes have moved to
+  classes, marks that already carried a class now carry the role class
+  beside it, and the charts' gradient and clipPath ids have gained a plate
+  suffix.  Two things to check, and grep the whole tree rather than only the
+  code you ship -- a consumer's tests are where its picture of this markup
+  is written down.  Test assertions on any of the above need loosening.  And
+  live JavaScript that reads a mark's DRAWN paint -- `getAttribute('fill')`,
+  to learn what color the station drew it in without hard-coding a palette
+  -- now reads null, silently: use `getComputedStyle(el).fill`, or read the
+  role classes, where a mark's sunlit and shadowed forms are the same pair
+  of roles exchanged.  The consumer hooks are untouched -- `data-body`,
+  `data-sunlit`, `data-bright`, `data-dome-ts` and the
+  `dome-body`/`dome-track` classes are exactly as they were.
+- Three label contrast fixes, two of them on the paper plate and one on
+  the dark one.  The moon's times on The Sun's Path took the moon dot's RIM
+  color, which is right for a 1px edge on a pale disc and measured 2.09:1
+  as 10px text on the civil twilight band; the hour numbers that follow the
+  arc down through the bands took the panel-surface gray, 1.03 on the paper
+  plate's astronomical band AND 3.59 on the DARK plate's day band.  Nothing
+  clears all five bands by color alone -- not the plates' grays, not their
+  inks, not black -- so these labels now read against a casing of their own
+  where the plate has one, exactly as every other mark over those bands
+  already does, and against the dark plate's ink where it does not.  The
+  dark page's sun-path hour numbers are therefore lighter than they were:
+  a visible change to the default look, and the only one in this release.
+  Reported by a consuming skin.
+- The paper plate's brass moves from #B45309 to #A44A08.  Brass carries the
+  satellite names and pass times INSIDE the dome, where it measured 4.44
+  against the gradient's middle and 4.25 against its rim; the new value
+  reads 5.22 and 4.99 and is the same hue.  Every brass mark and label on
+  the light theme is a shade darker.
+- The chart contrast audit now measures every label the charts draw, on the
+  ground each one actually lands on, read out of the rendered SVG at two
+  latitudes.  It had graded three label classes of the chart's nine, all of
+  them on the dome, which is how both defects above shipped -- and widening
+  it turned out to need fixing twice, because the audit's own list of what
+  to grade was written out a second time inside the test.
+- The panels' markup grows about 13% (about 7% after compression) for the
+  classes and their defaults.  Each panel defines both paint channels of
+  every role it uses, so a consumer that inverts a two-state mark by
+  exchanging its role classes -- the documented way to flip a satellite
+  between its sunlit and in-shadow looks without naming a color -- always
+  lands on a rule rather than on the SVG initial.  Nothing else about page generation or
+  its cost changes.
 
 2.3.5 (2026/08/30)
 ------------------
@@ -1055,7 +1146,7 @@ weewx-skyfield change history
   the sub-second copy window; the running engine is now immune to the file
   changing (or vanishing) underneath it.  Costs about 16 MB of resident
   memory.
-- The Hipparcos star data licence is now documented: ESA distributes the
+- The Hipparcos star data license is now documented: ESA distributes the
   Hipparcos and Tycho Catalogues under CC BY-NC 3.0 IGO, and the README,
   wxskyfield_stars.dat and the Sky page footer now carry the required
   "Credit: ESA" acknowledgment.  The wxskyfield_stars.dat header also no

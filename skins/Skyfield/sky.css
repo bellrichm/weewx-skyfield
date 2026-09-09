@@ -13,7 +13,7 @@
    governs) flips with it. */
 :root.theme-light{
   --night:#EFECE2; --vault:#FFFFFF; --ink:#1D2C4E; --muted:#5C6672;
-  --brass:#B45309; --line:#C9CFD8;
+  --brass:#A44A08; --line:#C9CFD8;
   color-scheme: light;
 }
 *{box-sizing:border-box}
@@ -77,7 +77,17 @@ section{background:var(--vault); border:1px solid var(--line); padding:20px 22px
 .chip{display:flex; gap:10px; align-items:flex-start; border-bottom:1px solid var(--line);
       padding:7px 2px}
 .chip:last-child{border-bottom:none}
-.dot{width:10px; height:10px; border-radius:50%; display:inline-block; flex:none; margin-top:6px}
+/* The chip and table swatches.  Their COLOR arrives inline from the panel,
+   as the custom properties --sky-dot and (pale bodies on the paper plate)
+   --sky-dot-ring, so that `background` itself stays free: an inline
+   background would outrank every rule a consuming skin could write, and
+   these swatches are meant to be themeable alongside the SVG panels' role
+   classes.  A skin that themes them overrides `background` on
+   [data-body="<name>"] .dot, which beats this rule on ordinary
+   specificity.  New in 2.4; a skin that copies rules piecemeal needs this
+   one, or its swatches lose their color. */
+.dot{width:10px; height:10px; border-radius:50%; display:inline-block; flex:none; margin-top:6px;
+     background:var(--sky-dot); box-shadow:inset 0 0 0 1.5px var(--sky-dot-ring, transparent)}
 .chipname{font-variant-caps:small-caps; letter-spacing:.1em}
 .chipline{font-size:.85rem}
 .chipsub{font-size:.78rem; color:var(--muted)}
@@ -98,10 +108,29 @@ svg text{fill:var(--ink)}
    .gridlab.  The paper plate needs no lift at all: its --muted clears 4.94
    on the dome, so the light rules hand it straight back.  (2.2) */
 .gridlab{font-size:10px; fill:var(--muted)}
+/* Labels that sit ON the twilight bands rather than on the panel: the sun
+   path's hour numbers, which follow the arc down through the bands, and the
+   moon's times.  The panel-surface gray reads 3.59:1 against the night
+   plate's day band and 1.03 against the paper plate's astronomical one, so
+   neither plate can use it here.  The night plate has ink, which clears
+   every one of its bands at 8.52 or better.  The paper plate has nothing
+   that clears them -- not muted, not ink, not black -- so its labels read
+   against a casing of their own instead (see _band_text), which is what
+   every other mark over these bands already does.  Like .skylab in 2.2,
+   this rides alongside .gridlab: a skin with no .bandlab rule gets the
+   gridlab gray and merely misses the lift.  New in 2.4. */
+.bandlab{fill:var(--ink)}
+:root.theme-light .bandlab{fill:var(--muted)}
 .skylab{fill:#9FA5C4}
 :root.theme-light .skylab{fill:var(--muted)}
 .moonlab{font-size:10px; fill:#C9D0DA}
-:root.theme-light .moonlab{fill:#767E8A}
+/* The moon's times on the sun-path chart sit ON the twilight bands, not on
+   the panel, and no single color clears 4.5:1 against all five of the paper
+   plate's -- not muted, not ink, not black.  So the label reads against its
+   own casing (see _band_text) and takes the same gray every other label on
+   that chart wears; the moon's #767E8A is its dot's RIM color, which held
+   4.10 on white and 1.23 on the nautical band.  Fixed in 2.4. */
+:root.theme-light .moonlab{fill:var(--muted)}
 .starlab{font-size:10px; fill:#9FA5C4; font-family:Georgia, serif; font-style:italic}
 :root.theme-light .starlab{fill:var(--muted)}
 .conlab{font-size:10px; fill:#9DABD7; font-family:Georgia, serif; font-style:italic;

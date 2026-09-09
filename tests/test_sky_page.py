@@ -14,6 +14,7 @@ import inspect
 import logging
 import os
 import re
+import subprocess
 import sys
 import time
 
@@ -389,7 +390,9 @@ class TestPanels:
         assert 'in Leo' in chips                  # Mars's constellation, June 2025
         table = page.table_html(almanac)
         assert_balanced(table)
-        assert table.count('<tr>') == 14     # header + 9 bodies + 4 comets
+        # Body and comet rows carry data-body (2.4); the header row does not.
+        assert table.count('<tr') == 14      # header + 9 bodies + 4 comets
+        assert table.count('<tr data-body=') == 13
 
     def test_unit_group_overrides(self, sky):
         """A report's [Units] [[Groups]] preferences (e.g. a station-wide
@@ -612,8 +615,8 @@ class TestConstellationDome:
         assert_balanced(svg)
         assert svg.count('<polyline') > 50
         # The figures clip at the horizon rim, planetarium-style.
-        assert 'clip-path="url(#domec)"' in svg
-        assert '<clipPath id="domec">' in svg
+        assert 'clip-path="url(#domec-night)"' in svg
+        assert '<clipPath id="domec-night">' in svg
         # Ursa Minor is circumpolar at the test latitude: always up,
         # always labeled (its centroid sits in the dome's quiet middle).
         assert '>Ursa Minor</text>' in svg
@@ -760,12 +763,34 @@ class TestSatellitePanel:
 
     def test_pass_chart_ids_distinct_from_dome(self, almanac, page):
         """Both charts share one page, so their SVG gradient/clipPath
-        ids must differ -- duplicate ids are invalid HTML."""
+        ids must differ -- duplicate ids are invalid HTML, and worse than
+        invalid: an id is global to the document and the FIRST element
+        wins every url(#id), so a chart whose id collides paints with
+        another chart's gradient."""
         dome = page.dome_svg(almanac)
         chart = page.pass_chart_html(almanac)
-        assert 'id="skyg"' in dome and 'id="domec"' in dome
-        assert 'id="skygp"' in chart and 'url(#domecp)' in chart
-        assert 'id="skyg"' not in chart and 'id="domec"' not in chart
+        assert 'id="skyg-night"' in dome and 'id="domec-night"' in dome
+        assert 'id="skygp-night"' in chart and 'url(#domecp-night)' in chart
+        assert 'id="skyg-night"' not in chart
+        assert 'id="domec-night"' not in chart
+
+    def test_two_plates_of_one_chart_do_not_share_a_gradient(self, almanac, page):
+        """The collision the ids are really guarding against, and the one
+        2.4's first cut had: a night dome and a light dome on the same
+        page.  Both said id="skyg", so the light dome's sky resolved to
+        the night gradient and drew navy under light-plate stars --
+        verified in a browser before this test was written.  Two charts of
+        the SAME plate may share an id, because they define identical
+        gradients; two plates must not."""
+        night = page.dome_svg(almanac)
+        light = page.dome_svg(almanac, palette='light')
+        for kind in ('skyg', 'domec'):
+            night_id = 'id="%s-night"' % kind
+            light_id = 'id="%s-light"' % kind
+            assert night_id in night and light_id in light, kind
+            assert night_id not in light and light_id not in night, kind
+        # ... and the reference on each disc points at its own plate.
+        assert 'url(#skyg-night)' in night and 'url(#skyg-light)' in light
 
     def test_pass_chart_twilight_cutoffs(self, almanac, page):
         """The chart plots a twilight sky (PASS_STAR_MAG_LIMIT, not the
@@ -839,7 +864,7 @@ class TestSatellitePanel:
             svg = wxskyfield_sky.SkyPage().dome_svg(alm)
         assert_balanced(svg)
         assert re.search(r'<g class="dome-body" data-body="iss" data-sunlit="0">'
-                         r'<circle [^>]*fill="#0A0F22" stroke="#D3A94C"', svg)
+                         r'<circle [^>]*class="sky-fill-halo sky-stroke-brass"', svg)
         assert re.search(r'<title>Iss — alt 29\.\d°, az 16\d\.\d° — in shadow</title>',
                          svg)
 
@@ -853,7 +878,7 @@ class TestSatellitePanel:
                                         formatter=weewx.units.get_default_formatter())
             svg = wxskyfield_sky.SkyPage().dome_svg(alm)
         assert re.search(r'<g class="dome-body" data-body="iss" data-sunlit="1">'
-                         r'<circle [^>]*fill="#D3A94C" stroke="#0A0F22"', svg)
+                         r'<circle [^>]*class="sky-fill-brass sky-stroke-halo"', svg)
         assert 'in shadow' not in svg
 
     def test_stale_elements_point_at_log(self, sky):
@@ -1070,7 +1095,7 @@ class TestPalettes:
             assert hexval in dome
         assert '#c9cfd8' not in dome
         ribbons = page.ribbons_svg(almanac, palette='light')
-        for hexval in ('#D7E6F5', '#B45309', '#FACC15'):    # day band, now, sun
+        for hexval in ('#D7E6F5', '#A44A08', '#FACC15'):    # day band, now, sun
             assert hexval in ribbons
         orrery = page.orrery_svg(almanac, palette='light')
         for hexval in ('#FACC15', '#2E7DBE', '#1B5C8F'):    # sun, earth + ring
@@ -1078,24 +1103,46 @@ class TestPalettes:
         moon = page.moon_svg(almanac, palette='light')
         for hexval in ('#26314F', '#F2ECD8', '#888888'):    # disc + ring
             assert hexval in moon
-        assert '#B45309' in page.analemma_svg(almanac, palette='light')
+        assert '#A44A08' in page.analemma_svg(almanac, palette='light')
         assert '#b23a24' in page.table_html(almanac, palette='light')   # mars
 
     def test_light_rings(self, almanac, page):
         """Pale bodies carry their ring color on the light plate: the sun's
         orrery dot, the moon and venus ribbon bars, and the chip/table dots
-        (as an inset box-shadow).  The night plate defines no rings —
-        nothing pale needs a lift on navy."""
+        (as an inset box-shadow, drawn by sky.css from --sky-dot-ring since
+        2.4).  The night plate defines no rings — nothing pale needs a lift
+        on navy — and sets no ring variable, so the shadow falls back to
+        transparent."""
         ribbons = page.ribbons_svg(almanac, palette='light')
         for hexval in ('#767E8A', '#97864A'):               # moon, venus bars
             assert hexval in ribbons
         assert '#BC7800' in page.orrery_svg(almanac, palette='light')
-        assert 'box-shadow:inset 0 0 0 1.5px #BC7800' in \
+        assert '--sky-dot-ring:#BC7800' in \
             page.chips_html(almanac, palette='light')
-        assert 'box-shadow:inset 0 0 0 1.5px #767E8A' in \
+        assert '--sky-dot-ring:#767E8A' in \
             page.table_html(almanac, palette='light')
-        assert 'box-shadow' not in page.chips_html(almanac)
-        assert 'box-shadow' not in page.table_html(almanac)
+        assert '--sky-dot-ring' not in page.chips_html(almanac)
+        assert '--sky-dot-ring' not in page.table_html(almanac)
+
+    def test_a_plate_colors_exactly_the_drawn_bodies(self):
+        """A plate gives a color to every body the panels paint, and to no
+        others.
+
+        The contrast audits below walk the PALETTE rather than the panels,
+        so a color for a body nothing draws is a ratio measured on a mark
+        that does not exist.  The light plate carried a `pluto` from 1.5 to
+        2.4 -- picked up when the traditional-colors pass enumerated the
+        ALMANAC's bodies -- and 2.3's change log duly reported having fixed
+        its contrast against the twilight bands, where no Pluto has ever
+        been drawn.  ($almanac.pluto is served in full; the charts plot the
+        classical planets, and PLANETS has read Mercury through Neptune
+        since v1.0.)  Rings are a per-body override and cannot name a body
+        the plate has no color for."""
+        drawn = set(wxskyfield_sky.CHART_BODIES)
+        for plate, pal in wxskyfield_sky.PALETTES.items():
+            assert set(pal['body']) == drawn, (
+                '%s colors %s' % (plate, sorted(set(pal['body']) ^ drawn)))
+            assert set(pal['ring']) <= drawn, plate
 
     def test_the_classic_names_still_render(self, almanac, page):
         """As of 2.3 'classic-night' and 'classic-light' are ALIASES of the
@@ -1214,6 +1261,176 @@ def _contrast(fg, bg, opacity=1.0):
     return (hi + 0.05) / (lo + 0.05)
 
 
+class TestClassContract:
+    """The role classes and their zero-specificity defaults (2.4).
+
+    Every graphical mark names its ROLE in a class and the SVG carries the
+    requested plate's values for the roles it used, so a consuming skin can
+    repaint any mark -- which is what a per-viewer light/dark switch needs,
+    the SVG being written once per report cycle and flipped hours later.
+
+    These are markup checks, and markup is only half the claim: whether the
+    defaults actually WIN or LOSE against a consumer's rule is a CSS
+    resolution question no source assertion can see.  That half lives in
+    tests/verify_sky_classes.py, which reads computed styles out of a real
+    browser -- test_the_browser_contract_holds runs it."""
+
+    SVG_RENDERERS = ('moon_svg', 'dome_svg', 'ribbons_svg', 'orrery_svg',
+                     'analemma_svg', 'eot_svg', 'sunpath_svg',
+                     'daylength_svg', 'lunation_svg')
+
+    def _classes_on_marks(self, svg):
+        """Every sky- role class used in a class ATTRIBUTE (never the style
+        block's own selectors), and the root plate class dropped."""
+        out = set()
+        for attr in re.findall(r'class="([^"]*)"', svg):
+            out |= {c for c in attr.split()
+                    if c.startswith('sky-') and c not in ('sky-night', 'sky-light')}
+        return out
+
+    def test_every_panel_carries_its_plate_class(self, almanac, page):
+        """The defaults are scoped to this class on the <svg> itself.  Miss
+        it and the panel renders unpainted -- and two panels of different
+        plates on one page would repaint each other, a <style> inside
+        inline SVG being document-wide in an HTML page."""
+        for plate in ('night', 'light'):
+            for name in self.SVG_RENDERERS:
+                svg = getattr(page, name)(almanac, palette=plate)
+                assert 'class="sky sky-%s"' % plate in svg, (plate, name)
+
+    def test_the_style_block_defines_every_class_a_mark_uses(self, almanac, page):
+        """A class on a mark with no default beside it renders unpainted --
+        black, or nothing at all.  This is the check that catches a typo in
+        a role name, which is otherwise invisible until someone looks at
+        the page: `sky-fill-trace-moon` was written on the moon track's
+        endpoint dots before the class existed."""
+        for plate in ('night', 'light'):
+            for name in self.SVG_RENDERERS:
+                svg = getattr(page, name)(almanac, palette=plate)
+                for cls in self._classes_on_marks(svg):
+                    assert ':where(.%s){' % cls in svg, (
+                        '%s %s: %s has no default' % (plate, name, cls))
+
+    def test_the_style_block_defines_nothing_a_mark_does_not_use(
+            self, almanac, page):
+        """The other direction: the block is driven by the markup, so a
+        panel carries its own roles -- and each of those roles in the other
+        paint channel, for the swap below -- and not the whole palette."""
+        for name in self.SVG_RENDERERS:
+            svg = getattr(page, name)(almanac)
+            used = self._classes_on_marks(svg)
+            want = set(used)
+            for cls in used:
+                partner = wxskyfield_sky._partner(cls)
+                if partner in wxskyfield_sky._sky_classes(
+                        wxskyfield_sky.PALETTES['night']):
+                    want.add(partner)
+            defined = set(re.findall(r':where\(\.(sky-[a-z0-9-]+)\)\{', svg))
+            assert defined == want, (name, sorted(defined ^ want))
+
+    def test_a_swapped_mark_still_has_a_default(self, almanac, page):
+        """The guarantee the documented flip technique stands on.
+
+        A mark whose two states are one another's inverse -- a sunlit
+        satellite is `sky-fill-brass sky-stroke-halo`, a shadowed one the
+        same pair exchanged -- lets a live consumer invert it by exchanging
+        the suffixes, without naming a color.  That only works if the
+        partner class has a rule.  Emitting only what the chart happened to
+        draw broke it: a chart whose satellite was sunlit never filled with
+        halo, so the swapped mark asked for `sky-fill-halo`, found nothing,
+        and fell back to the SVG initial -- black for a fill.  Caught by a
+        consumer's code review, in the technique this repo recommends."""
+        for plate in ('night', 'light'):
+            for name in self.SVG_RENDERERS:
+                svg = getattr(page, name)(almanac, palette=plate)
+                for cls in self._classes_on_marks(svg):
+                    partner = wxskyfield_sky._partner(cls)
+                    if partner is None or partner not in wxskyfield_sky._sky_classes(
+                            wxskyfield_sky.PALETTES[plate]):
+                        continue
+                    assert ':where(.%s){' % partner in svg, (
+                        '%s %s: swapping %s asks for %s, which has no default'
+                        % (plate, name, cls, partner))
+
+    def test_no_mark_takes_two_roles_in_one_channel(self, almanac, page):
+        """Two fill roles (or two stroke roles) on one mark leaves the
+        winner to the order the defaults happen to be written in, which is
+        alphabetical and means nothing.  The ribbons bar shipped that way
+        for an afternoon: it carried the body's rim AND the plate's
+        bandedge, and the rim won because 'r' sorts after 'b'."""
+        for plate in ('night', 'light'):
+            for name in self.SVG_RENDERERS:
+                svg = getattr(page, name)(almanac, palette=plate)
+                for attr in re.findall(r'class="([^"]*)"', svg):
+                    roles = [c for c in attr.split() if c.startswith('sky-')]
+                    fills = [c for c in roles if c.startswith('sky-fill-')]
+                    strokes = [c for c in roles if c.startswith('sky-stroke-')]
+                    assert len(fills) <= 1, (plate, name, attr)
+                    assert len(strokes) <= 1, (plate, name, attr)
+
+    def test_no_svg_panel_bakes_a_color(self, almanac, page):
+        """The point of the exercise: outside the style block, no mark
+        carries a color a stylesheet cannot reach.  (The chip and table
+        swatches are HTML rather than SVG and stay baked, by agreement with
+        the consuming skin that themes them.)"""
+        for plate in ('night', 'light'):
+            for name in self.SVG_RENDERERS:
+                svg = getattr(page, name)(almanac, palette=plate)
+                marks = re.sub(r'<style>.*?</style>', '', svg, flags=re.S)
+                for attr in ('fill', 'stroke', 'stop-color'):
+                    assert '%s="#' % attr not in marks, (
+                        '%s %s bakes a %s' % (plate, name, attr))
+
+    def test_an_alias_scopes_to_the_plate_it_resolves_to(self, almanac, page):
+        """A skin still passing 'classic-night' must get a working panel,
+        not one whose defaults name a plate class the root does not carry.
+        The name has to resolve BEFORE it reaches the markup."""
+        wxskyfield_sky._warned_palettes.clear()
+        try:
+            for classic, current in wxskyfield_sky.PALETTE_ALIASES.items():
+                svg = page.dome_svg(almanac, palette=classic)
+                assert 'class="sky sky-%s"' % current in svg, classic
+                assert ':where(svg.sky-%s)' % current in svg, classic
+        finally:
+            wxskyfield_sky._warned_palettes.clear()
+
+    def test_the_night_plate_still_declines_its_casing(self, almanac, page):
+        """The structural half of 2.4: the casing is an ELEMENT on both
+        plates now, because markup a plate declines to write is markup a
+        reader who flips to the other plate can never get back.  The night
+        plate goes on paying nothing for it -- the class resolves to
+        `none`, which paints no pixels (proved in the raster comparison and
+        by the browser check)."""
+        svg = page.ribbons_svg(almanac)
+        assert 'class="sky-fill-bandcase"' in svg
+        assert ':where(.sky-fill-bandcase){fill:none}' in svg
+        light = page.ribbons_svg(almanac, palette='light')
+        assert ':where(.sky-fill-bandcase){fill:#ffffff}' in light
+
+    def test_the_two_plates_shape_the_dome_gradient_alike(self):
+        """A stop's OFFSET is an attribute, not a CSS property, so it
+        cannot follow a reader's theme switch.  Two plates with different
+        offsets would leave a flipped page drawing the other plate's
+        geometry, so both ramp through the same three."""
+        offsets = [tuple(o for o, _c in pal['dome_stops'])
+                   for pal in wxskyfield_sky.PALETTES.values()]
+        assert len(set(offsets)) == 1, offsets
+
+    def test_the_browser_contract_holds(self):
+        """Which rule wins is not a question the markup can answer.  Runs
+        the real thing in Chromium: an untouched panel draws its plate, a
+        one-class consumer rule beats our default, two plates on one page
+        do not repaint each other, a night panel flips to light, and the
+        casing the night plate declines can be handed a color."""
+        script = os.path.join(TEST_DIR, 'verify_sky_classes.py')
+        if not os.path.exists(os.path.join(REPO_ROOT, 'tools', 'pwenv',
+                                           'bin', 'python')):
+            pytest.skip('no browser environment (tools/pwenv)')
+        proc = subprocess.run([sys.executable, script], capture_output=True,
+                              text=True)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
 class TestSkyChartContrast:
     """Every mark on the two sky charts (the dome and the Next Visible Pass
     chart -- one _sky_chart, so one audit) must hold its floor against the
@@ -1260,6 +1477,13 @@ class TestSkyChartContrast:
         panel-surface .gridlab gray.  Returns {class: (night, light)}."""
         with open(os.path.join(self.SKIN_DIR, 'sky.css')) as f:
             css = f.read()
+        # Comments out, FIRST.  The rule split below reads everything up
+        # to a '{' as the selector, so a comment written above a rule
+        # becomes part of that rule's selector -- the lookup then misses,
+        # fill_of returns None, and a light override grades silently as the
+        # dark value it falls back to.  A comment explaining why a color was
+        # chosen is exactly what sits above these rules (2.4).
+        css = re.sub(r'/\*.*?\*/', ' ', css, flags=re.S)
         root = re.search(r':root\{(.*?)\}', css, re.S).group(1)
         light_root = re.search(r':root\.theme-light\{(.*?)\}', css, re.S).group(1)
 
@@ -1284,7 +1508,13 @@ class TestSkyChartContrast:
             return m.group(1).strip() if m else None
 
         out = {}
-        for cls in ('skylab', 'starlab', 'conlab'):
+        # satlab and nowlab are brass and sit INSIDE the dome -- a satellite
+        # name beside its marker, a pass's rise and set times nudged in from
+        # the rim.  They were not graded until 2.4, and the paper plate's
+        # brass measured 4.44 against the gradient's middle and 4.25 against
+        # its rim.  Grading three of the chart's label classes and calling
+        # it the chart's audit is how that shipped.
+        for cls in ('skylab', 'starlab', 'conlab', 'satlab', 'nowlab'):
             dark = fill_of('.%s' % cls)
             assert dark, cls
             light = fill_of(':root.theme-light .%s' % cls) or dark
@@ -1302,6 +1532,10 @@ class TestSkyChartContrast:
         module, not restated here, so a change to either recomputes these
         ratios rather than making them fiction.
 
+        As of 2.4 satlab and nowlab are graded too -- brass text, inside
+        the dome, ungraded until a consuming skin measured it at 4.25
+        against the paper plate's rim.
+
         SCOPE, deliberate: the dark-sky opacity.  While the sun is up the
         chart dims its star field to STAR_OPACITY_SUN_UP, which puts these
         same labels at 2.2-3.3 -- under the floor, on purpose, because
@@ -1310,11 +1544,22 @@ class TestSkyChartContrast:
         clock."""
         fills = self._chart_label_fills()
         dark = wxskyfield_sky.STAR_OPACITY_DARK
+        # DRIVEN BY THE HELPER, not by a list written here.  This test
+        # hardcoded its own three classes, so widening the helper to grade
+        # satlab and nowlab in 2.4 added two entries that nothing read and
+        # the paper plate's brass went on failing -- the same defect as the
+        # gap being closed, one level up.  A class the helper resolves and
+        # this map does not name now fails here instead.
+        opacities = {'skylab': 1.0,
+                     'starlab': dark + wxskyfield_sky.STAR_LABEL_BUMP,
+                     'conlab': dark,
+                     'satlab': 1.0,          # a satellite's name, beside its marker
+                     'nowlab': 1.0}          # a pass's rise and set times
+        assert set(opacities) == set(fills), sorted(
+            set(opacities) ^ set(fills))
         for plate, idx in (('night', 0), ('light', 1)):
             pal = wxskyfield_sky.PALETTES[plate]
-            for cls, opacity in (('skylab', 1.0),
-                                 ('starlab', dark + wxskyfield_sky.STAR_LABEL_BUMP),
-                                 ('conlab', dark)):
+            for cls, opacity in sorted(opacities.items()):
                 fill = fills[cls][idx]
                 for stop in self._dome_stops(pal):
                     got = _contrast(fill, stop, opacity)
@@ -1388,6 +1633,146 @@ class TestSkyChartContrast:
                 r'<text[^>]*class="%s"[^>]*opacity="([\d.]+)"' % cls, dome)]
             assert drawn, cls
             assert all(o == pytest.approx(expected) for o in drawn), (cls, drawn)
+
+
+class TestBandLabelContrast:
+    """Every LABEL that lands on the twilight bands, measured against the
+    ground it actually lands on -- read out of the rendered SVG rather than
+    from a list of the classes someone remembered.
+
+    This is the audit that was missing, and the gap was not subtle: the
+    chart draws nine label classes and TestSkyChartContrast graded three of
+    them, all on the dome.  Two failures shipped behind that.  The moon's
+    times on the sun path took the moon's dot RIM color, right for a 1px
+    edge on a pale disc and 2.09:1 as 10px text on the civil band; and the
+    hour numbers that follow the arc down through the bands took the
+    panel-surface gray, 1.03 on the paper plate's astronomical band and
+    3.59 on the NIGHT plate's day band.  Both were found by a consuming
+    skin, not here (2.4).
+
+    Reading the ground from the markup is the whole point.  A label's
+    ground depends on where the sun happens to put it, which is a function
+    of the date and the latitude -- so this renders at two of them, and
+    would have caught either defect at either one."""
+
+    FLOOR = 4.5                        # WCAG AA, small text
+    PANELS = ('sunpath_svg', 'ribbons_svg', 'daylength_svg')
+    # Palo Alto, and inside the Arctic Circle where the arc lies along the
+    # bands rather than crossing them.  Two is a compromise: each sun-path
+    # render evaluates the almanac 97 times.
+    PLACES = ((LATITUDE, LONGITUDE), (69.6492, 18.9553))
+
+    def _fills(self):
+        """{class: (night fill, light fill)} for every class sky.css gives
+        a fill to, with var() resolved and comments stripped."""
+        with open(os.path.join(REPO_ROOT, 'skins', 'Skyfield', 'sky.css')) as f:
+            css = re.sub(r'/\*.*?\*/', ' ', f.read(), flags=re.S)
+        root = re.search(r':root\{(.*?)\}', css, re.S).group(1)
+        light_root = re.search(r':root\.theme-light\{(.*?)\}', css, re.S).group(1)
+
+        def resolve(value, block):
+            v = re.match(r'var\(--([a-z]+)\)', value.strip())
+            if not v:
+                return value.strip()
+            return re.search(r'--%s:\s*(#[0-9A-Fa-f]{6})' % v.group(1),
+                             block, re.I).group(1)
+
+        rules = []
+        for sel, body in re.findall(r'([^{}]+)\{([^{}]*)\}', css):
+            m = re.search(r'(?:^|;)\s*fill:\s*([^;]+)', body)
+            if m:
+                rules.append((' '.join(sel.split()), m.group(1)))
+        return rules, root, light_root, resolve
+
+    def _winning(self, classes, plate, rules, root, light_root, resolve):
+        """The fill the ELEMENT gets, not the one a single class would.
+
+        The dome's ring labels carry `mono gridlab skylab` and the band
+        hour labels `mono gridlab bandlab`; grading a class at a time
+        reports the value the cascade threw away."""
+        best = None
+        for order, (sel, value) in enumerate(rules):
+            for cls in classes:
+                if sel == '.%s' % cls:
+                    rank = 1
+                elif plate == 'light' and sel == ':root.theme-light .%s' % cls:
+                    rank = 2
+                else:
+                    continue
+                if best is None or (rank, order) >= best[0]:
+                    best = ((rank, order), value)
+        if best is None:
+            return None
+        return resolve(best[1], light_root if plate == 'light' else root)
+
+    def test_every_label_over_a_band_holds_45(self, sky):
+        rules, root, light_root, resolve = self._fills()
+        worst = []
+        with saved_almanacs():
+            assert wxskyfield.register_almanac(sky)
+            for lat, lon in self.PLACES:
+                alm = weewx.almanac.Almanac(
+                    TIME_TS, lat, lon, altitude=ALTITUDE_M,
+                    formatter=weewx.units.get_default_formatter())
+                for plate in ('night', 'light'):
+                    pal = wxskyfield_sky.PALETTES[plate]
+                    for panel in self.PANELS:
+                        svg = getattr(wxskyfield_sky.SkyPage(), panel)(
+                            alm, palette=plate)
+                        bands = [(float(m.group(1)), float(m.group(2)),
+                                  float(m.group(3)), float(m.group(4)), m.group(5))
+                                 for m in re.finditer(
+                                     r'<rect x="([\d.]+)" y="([\d.]+)" '
+                                     r'width="([\d.]+)" height="([\d.]+)" '
+                                     r'class="sky-fill-tw-(\w+)"', svg)]
+                        texts = re.findall(
+                            r'<text x="([-\d.]+)" y="([-\d.]+)"[^>]*'
+                            r'class="([^"]*)"[^>]*>', svg)
+                        cased = {(round(float(x), 1), round(float(y), 1))
+                                 for x, y, cls in texts
+                                 if 'sky-fill-bandcase' in cls}
+                        for x, y, classes in texts:
+                            if 'sky-fill-bandcase' in classes:
+                                continue          # the casing is not a label
+                            x, y = float(x), float(y)
+                            names = [c for c in classes.split()
+                                     if c != 'mono' and not c.startswith('sky-')]
+                            fill = self._winning(names, plate, rules, root,
+                                                 light_root, resolve)
+                            on = [(n, pal['twilight'][n])
+                                  for bx, by, w, h, n in bands
+                                  if bx <= x <= bx + w and by <= y <= by + h]
+                            if fill is None or not on:
+                                continue
+                            # A label with a casing reads against the
+                            # casing, which is the point of having one --
+                            # and on a plate that declines one, against the
+                            # band, which is why the night plate's labels
+                            # have to clear the bands by color alone.
+                            if (round(x, 1), round(y, 1)) in cased and pal['bandcase']:
+                                on = [('its casing', pal['bandcase'])]
+                            for where, bg in on:
+                                got = _contrast(fill, bg)
+                                if got < self.FLOOR:
+                                    worst.append(
+                                        '%s %s lat %.1f: %s (%s) on %s (%s) is '
+                                        '%.2f' % (plate, panel, lat, classes,
+                                                  fill, where, bg, got))
+        assert not worst, '\n'.join([''] + sorted(set(worst)))
+
+    def test_the_audit_reads_labels_and_bands(self, sky):
+        """A scanner that matched nothing would pass for ever.  Both halves
+        have to be found: the bands, and text sitting on them."""
+        with saved_almanacs():
+            assert wxskyfield.register_almanac(sky)
+            alm = weewx.almanac.Almanac(
+                TIME_TS, LATITUDE, LONGITUDE, altitude=ALTITUDE_M,
+                formatter=weewx.units.get_default_formatter())
+            svg = wxskyfield_sky.SkyPage().sunpath_svg(alm, palette='light')
+        bands = re.findall(r'class="sky-fill-tw-(\w+)"', svg)
+        assert len(set(bands)) >= 4, sorted(set(bands))
+        assert 'bandlab' in svg
+        assert 'sky-fill-bandcase sky-stroke-bandcase' in svg
 
 
 class TestPanelGridContrast:
@@ -1469,15 +1854,19 @@ class TestPanelGridContrast:
             for renderer in self.RENDERERS:
                 svg = getattr(page, renderer)(almanac, palette=plate)
                 assert pal['bandgrid'] in svg, (plate, renderer)
-                assert 'stroke="%s"' % pal['line'] not in svg, (plate, renderer)
+                # `line` is the PANEL-surface color and has no business on
+                # a mark drawn over the bands -- as of 2.4 that is a class
+                # these panels must not carry, rather than a hex they must
+                # not bake.
+                assert 'sky-stroke-line' not in svg, (plate, renderer)
+                assert 'sky-fill-line' not in svg, (plate, renderer)
 
     def test_the_casing_is_wider_than_the_rule_it_carries(self):
         """A casing narrower than its rule would not be a casing.  Pins the
         geometry the ratios assume: one wide pale stroke, one thin rule
-        centred on it, in that order -- painted after, the casing would
+        centered on it, in that order -- painted after, the casing would
         bury what it is there to carry."""
-        svg = wxskyfield_sky._band_rule(
-            wxskyfield_sky.PALETTES['light'], 0, 0, 10, 0, 'primary')
+        svg = wxskyfield_sky._band_rule(0, 0, 10, 0, 'primary')
         casing, rule = svg.split('/>')[0], svg.split('/>')[1]
         assert svg.count('<line') == 2
         assert 'stroke-width="%d"' % wxskyfield_sky.BAND_CASING_WIDTH in casing
@@ -1492,8 +1881,10 @@ class TestBandMarkContrast:
     This is the half 2.2 left behind, and it was the worse half: the
     gridlines were invisible on the NIGHT plate, where the bars were merely
     dim, but on the paper plate the bars themselves measured 1.01:1 (Mars
-    on the astro band), 1.04 (Mercury on night), 1.06 (Pluto), with the
-    transit ticks at 1.72 and the "now" line at 1.20.  Nothing caught it
+    on the astro band) and 1.04 (Mercury on night), with the
+    transit ticks at 1.72 and the "now" line at 1.20.  (2.3's own account
+    of this added "1.06 (Pluto)" -- a ratio for a body no panel draws; see
+    test_a_plate_colors_exactly_the_drawn_bodies.)  Nothing caught it
     because `test_body_dots_hold_3` measures body colors against the DOME
     GRADIENT -- the surface those colors were chosen for -- and no audit
     knew the same colors were also being painted over a twilight ramp.
@@ -1576,18 +1967,29 @@ class TestBandMarkContrast:
         crosses the bands.  All three panels that plot on that surface must
         therefore paint one -- checked in the rendered SVG, per renderer,
         because 2.3 first shipped the mechanism in `ribbons_svg` alone and
-        the audit could not tell."""
+        the audit could not tell.
+
+        As of 2.4 the casing ELEMENT is written on both plates and the
+        plate's value arrives as a class default, so both halves are
+        checked: the mark carries the casing class, and the plate's own
+        value (or `none`, which is how the night plate goes on paying
+        nothing for a casing it does not need) is what that class resolves
+        to in this SVG.  The element cannot be conditional any more --
+        markup a plate declines to write is markup a reader who flips to
+        the other plate can never get back."""
         for plate, pal in wxskyfield_sky.PALETTES.items():
+            want = pal['bandcase'] or 'none'
             for renderer in ('ribbons_svg', 'sunpath_svg', 'daylength_svg'):
                 svg = getattr(page, renderer)(almanac, palette=plate)
-                if pal['bandcase']:
-                    assert ('stroke="%s"' % pal['bandcase'] in svg
-                            or 'fill="%s"' % pal['bandcase'] in svg), (
-                        '%s %s paints no casing' % (plate, renderer))
-                else:
-                    # A night plate needs none and must not pay for one.
-                    assert pal['bandcase'] is None
-                    assert 'stroke="#ffffff"' not in svg, (plate, renderer)
+                assert ('sky-stroke-bandcase' in svg
+                        or 'sky-fill-bandcase' in svg), (
+                    '%s %s draws no casing mark' % (plate, renderer))
+                for cls, prop in (('sky-stroke-bandcase', 'stroke'),
+                                  ('sky-fill-bandcase', 'fill')):
+                    if cls in svg:
+                        assert ':where(.%s){%s:%s}' % (cls, prop, want) in svg, (
+                            '%s %s: %s does not resolve to %s'
+                            % (plate, renderer, cls, want))
 
     def test_the_ribbons_panel_draws_the_layers_the_audit_reads(
             self, almanac, page):
@@ -1596,15 +1998,15 @@ class TestBandMarkContrast:
         layers.  Checked in the rendered SVG, not in the source."""
         for plate, pal in wxskyfield_sky.PALETTES.items():
             svg = page.ribbons_svg(almanac, palette=plate)
-            assert 'stroke="%s" stroke-width="1"' % pal['bandedge'] in svg, plate
-            if pal['bandcase']:
-                assert ('fill="%s" opacity="%s"'
-                        % (pal['bandcase'],
-                           wxskyfield_sky.BAND_MARK_CASING_OPACITY)) in svg, plate
-            else:
-                # A night plate must not pay for a casing it does not need.
-                assert 'opacity="%s"' % (
-                    wxskyfield_sky.BAND_MARK_CASING_OPACITY) not in svg, plate
+            # The outline on the bar, and the casing beneath it: each is a
+            # class on the mark and a default resolving to the plate's own
+            # value -- `none` on the plate that declines the layer.
+            assert 'sky-stroke-bandedge" stroke-width="1"' in svg, plate
+            assert ':where(.sky-stroke-bandedge){stroke:%s}' % pal['bandedge'] in svg, plate
+            assert ('class="sky-fill-bandcase" opacity="%s"'
+                    % wxskyfield_sky.BAND_MARK_CASING_OPACITY) in svg, plate
+            assert (':where(.sky-fill-bandcase){fill:%s}'
+                    % (pal['bandcase'] or 'none')) in svg, plate
 
     def test_a_bare_identity_color_fails_this_audit(self):
         """Proof the audit trips, by measuring the code as it shipped
@@ -1623,7 +2025,7 @@ class TestBandMarkContrast:
         inset, would bury the mark it exists to carry.  The <title> stays
         on the bar -- the casing must not become a second hover target."""
         svg = wxskyfield_sky._band_bar(
-            wxskyfield_sky.PALETTES['light'], 100, 50, 200, 10, 4, '#b23a24',
+            100, 50, 200, 10, 4, 'sky-fill-body-mars',
             inner='<title>x</title>')
         casing, bar = svg.split('<rect ')[1], svg.split('<rect ')[2]
         pad = wxskyfield_sky.BAND_MARK_CASING_PAD

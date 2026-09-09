@@ -62,9 +62,9 @@ and planets are computed.
 **Equation of time** — the difference between what a sundial reads and what a clock reads,
 swinging roughly ±16 minutes across the year.  See [the tag](tag-index.md#top-level-tags).
 
-**Geocentric** — measured from Earth's centre.  Contrast *topocentric*.
+**Geocentric** — measured from Earth's center.  Contrast *topocentric*.
 
-**Heliocentric** — measured from the sun's centre.  The orrery panel is a heliocentric view.
+**Heliocentric** — measured from the sun's center.  The orrery panel is a heliocentric view.
 
 **Hipparcos** — the ESA satellite mission whose catalog of 118,218 stars ships with this
 extension.  A star's catalog number is its HIP number.
@@ -95,7 +95,9 @@ which is why this extension reports `N/A` rather than a fictitious number.
 **Plate** — this manual's word for one of the Sky page's two color schemes, borrowed from
 printed star atlases: the **night plate** (the default dark theme) and the **paper plate**
 (the light one).  A plate is chosen at generation time by the `theme`
-[option](configuration.md#the-sky-pages-report-stanza) and baked into the page; see
+[option](configuration.md#the-sky-pages-report-stanza) and sets the page's colors; an
+embedding skin can override them from its own stylesheet (see
+[the role classes](panels.md#restyling-the-marks--the-role-classes)).  See also
 [the two plates](sky-page.md#the-two-plates).
 
 **Radiant** — the point on the sky meteors in a shower appear to stream away from.
@@ -124,7 +126,7 @@ larger and brighter.  This extension's tag uses exactly that rule.
 Each cached file here holds one satellite's.
 
 **Topocentric** — measured from where *you* stand on Earth's surface, rather than from its
-centre.  This is what you actually see, and what most of this extension's position tags
+center.  This is what you actually see, and what most of this extension's position tags
 report.
 
 **Transit** — the moment a body crosses your meridian, which is when it is highest in your

@@ -100,13 +100,14 @@ these are a stable contract:
 | `$sky_page.satellite_names()` | template | The configured satellite tag names, in config order. |
 | `$sky_page.comet_names()` | template | The configured comet tag names, in config order. |
 | `$sky_page.can_draw()` | template | Whether the page can draw the sky at all — True with the Skyfield almanac registered, False on a lesser tier, where `dome_svg`, `pass_chart_html`, `satellites_html`, `eot_svg` and `moon_apsides_html` come back empty (2.3.4 and later).  Gate panels placed beside the dome on this rather than on a dome render. |
-| `$sky_page.theme($almanac)` / `.palette($almanac)` | template | The consuming report's own theme, resolved — see [Helpers](panels.md#helpers--theme-palette-header_sub-and-sun_is_up).  Resolve once per page: the palette is baked into each fragment, so a page that re-renders fragments must hand every one the same value or the chart flips plate on a refresh. |
+| `$sky_page.theme($almanac)` / `.palette($almanac)` | template | The consuming report's own theme, resolved — see [Helpers](panels.md#helpers--theme-palette-header_sub-and-sun_is_up).  Resolve once per page: the palette sets each fragment's default colors, so a page that re-renders fragments must hand every one the same value or the chart flips plate on a refresh.  (The marks' role classes let your own stylesheet override that default — see [the role classes](panels.md#restyling-the-marks--the-role-classes).) |
 
 Locate marks by these names, never by tooltip text — tooltips are translated.
 
 ## A worked example
 
-[weewx-celestial](https://github.com/chaunceygardiner/weewx-celestial) (**8.1 or later**) is
+[weewx-celestial](https://github.com/chaunceygardiner/weewx-celestial) (**9.1 or later**
+with weewx-skyfield 2.4) is
 the reference implementation: a complete live celestial page built entirely from loopdata
 almanac fields, including this extension's own dome embedded as a live instrument, with each
 satellite's marker swept across the sky in real time and flipping between sunlit and shadow
@@ -118,7 +119,7 @@ from the same `sunlit` flag the dome bakes in.
 weewx-skyfield's own Sky page stays static, refreshing once per report cycle.  The chart
 itself is this extension's dome, embedded there.  A third of the way across, still climbing, the
 marker inverts to a hollow ring as Tiangong slips into Earth's shadow — and it goes on to
-cross the exact centre of the dome dark, no longer shining.  In the opening seconds Terra is finishing its own low
+cross the exact center of the dome dark, no longer shining.  In the opening seconds Terra is finishing its own low
 western pass: two satellites on the dome at once.*
 
 The [paloaltoweather.com celestial pages](https://www.paloaltoweather.com/celestial.html)

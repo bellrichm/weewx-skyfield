@@ -32,8 +32,8 @@ not in English:
    same public `$almanac` tags available to any template; the dome's stars additionally come
    from the registered almanac's star catalog.
 
-3. Bring the CSS along.  The colors of every mark are baked into the markup, but text styling
-   and block layout come from CSS classes in the bundled skin's stylesheet,
+3. Bring the CSS along.  Text styling and block layout come from CSS classes in the bundled
+   skin's stylesheet,
    `skins/Skyfield/sky.css` — `mono`, `cardinal`, `gridlab` and friends for the SVG labels;
    `count`, the `chip` family and the table rules for the HTML blocks.  Copy the rules you
    need (or the whole file) into your skin's stylesheet.  If you copied individual rules,
@@ -42,6 +42,9 @@ not in English:
    label, and the pass chart's `passhead`/`passname`/`passwhen` head-line rules), and text
    with no rule renders at the
    16px SVG default in the wrong color — changes.txt calls out new classes.
+   2.4 added two: `bandlab`, for the labels that sit on the twilight bands rather than on
+   the panel, and a `.dot` rule that paints the chip and table swatches from the custom
+   property the markup now carries — without that one the swatches have no color at all.
    2.2 added one more, `skylab`, the sky charts' 30°/60° ring-degree labels, and that one
    fails more gently — which is exactly why it is worth reading about.
 
@@ -70,9 +73,11 @@ reference for the wrapper markup mentioned below.  A failing panel never takes d
 generation: the error is logged and that one panel renders blank.  Body evaluations are
 memoized, so several panels on one page do not repeat the expensive rise/set searches.
 
-Every render method takes an optional `palette` argument choosing the colors baked into the
-markup: `'night'` (the default, used in the screenshots below) or `'light'`, a paper-atlas
-plate for light-themed pages: `$sky_page.analemma_svg($almanac, palette='light')`.  As of 1.5
+Every render method takes an optional `palette` argument choosing the panel's colors:
+`'night'` (the default, used in the screenshots below) or `'light'`, a paper-atlas
+plate for light-themed pages: `$sky_page.analemma_svg($almanac, palette='light')`.  Since 2.4
+those colors arrive as overridable defaults rather than as values written onto each mark —
+see [the role classes](#restyling-the-marks--the-role-classes).  As of 1.5
 both plates draw the bodies in the traditional astronomy colors — yellow sun, silver moon,
 gray Mercury, pearly Venus, blue Earth, red Mars and so on — with pale bodies carrying a thin
 ring on the light plate so they hold their edge on paper.  Where those same colors are drawn
@@ -86,6 +91,155 @@ every twilight depth (2.3).
 logs a warning naming its replacement.  They lasted a very short time before 1.5 shipped, and
 keeping two frozen color schemes meant arguing every contrast fix twice — the second time on a
 plate whose whole premise was that its colors could not move.
+
+## Restyling the marks — the role classes
+
+As of 2.4 every graphical mark in an SVG panel carries a class naming its **role**, and the
+panel carries the requested plate's values for the roles it actually used as CSS rules of
+*zero specificity*.  A skin that does nothing renders exactly as it did before.  A skin that
+writes one rule repaints that role wherever it appears — which is what a per-viewer light/dark
+switch needs, since the SVG is written once per report cycle and the reader may flip themes
+hours later.
+
+Class names are `sky-<channel>-<role>`, where the channel is `fill` or `stroke`.  The channel
+is part of the name because several roles are a fill on one mark and a stroke on another —
+one class per role would paint the inside of a stroked curve.
+
+| Class | The mark it paints |
+|---|---|
+| `sky-fill-ink`, `sky-stroke-ink` | star dots, plotted curves, transit ticks |
+| `sky-fill-muted`, `sky-stroke-muted` | secondary chrome — the analemma's weekly dots, the orrery's reference line |
+| `sky-fill-brass`, `sky-stroke-brass` | accents and now-markers: today's point, the pass arc, satellite and comet marks, meteor radiants |
+| `sky-fill-line`, `sky-stroke-line` | gridlines and orbit circles drawn on the **panel** surface |
+| `sky-fill-grid`, `sky-stroke-grid` | the sky charts' altitude rings and the cross through the zenith, which read against the dome gradient instead |
+| `sky-fill-bandgrid`, `sky-stroke-bandgrid` | gridlines on the three panels that plot over twilight **bands** |
+| `sky-fill-bandcase`, `sky-stroke-bandcase` | the casing under those gridlines and under the data marks that cross the same bands.  Resolves to `none` on the night plate, which needs no casing — the element is always there, so a reader who flips to a light theme can be given one |
+| `sky-fill-bandedge`, `sky-stroke-bandedge` | the outline separating a body's identity color from the band under it |
+| `sky-fill-halo`, `sky-stroke-halo` | the stroke lifting body dots off the plate; also the interior of a hollow (shadowed satellite, faint comet) marker |
+| `sky-fill-conline`, `sky-stroke-conline` | the constellation figures |
+| `sky-fill-tw-night`, `-astro`, `-naut`, `-civil`, `-day` | the five twilight bands |
+| `sky-fill-body-<name>` | a body's identity color |
+| `sky-stroke-body-<name>` | the same color as a line — the sun's rays |
+| `sky-stroke-ring-<name>` | a body dot's edge: the plate's per-body ring where it has one, else the plate's halo |
+| `sky-stroke-trace-<name>`, `sky-fill-trace-<name>` | a body's plotted track and the dots that terminate it: the ring where the plate has one, else the body's own color (a line cannot wear a halo) |
+| `sky-stroke-rim-<name>` | the pale-body lift on the light plate: the ring where the plate has one, else `none` |
+| `sky-fill-moon-dark`, `sky-fill-moon-lit`, `sky-stroke-moon-ring` | the moon disc |
+| `sky-stroke-dome-rim` | the dome's horizon rim |
+| `sky-dome-stop-1`, `-2`, `-3` | the dome gradient's three stops (`stop-color`) |
+| `sky-fill-orrery-sun` | the orrery's sun |
+| `sky-fill-earth`, `sky-stroke-earth` | the orrery's Earth |
+
+`<name>` is one of the nine bodies these panels draw: `sun`, `moon`, `mercury`, `venus`,
+`mars`, `jupiter`, `saturn`, `uranus`, `neptune`.  A skin that shows more than that — Pluto,
+say — is drawing its own marks and styles them from its own tokens; there is no
+`sky-fill-body-pluto`.
+
+### If your skin reads the markup
+
+The pages render identically, but the markup they render from has changed: what was
+`fill="#D3A94C"` on a mark is now `class="sky-fill-brass"`, a mark that already carried a
+class carries the role class alongside it (`class="comet-tail sky-stroke-brass"`), and the
+charts' gradient and clipPath ids now end in the plate name (`skyg-night`).
+
+Two places that can bite, and the second one bites silently:
+
+- **Your tests.**  A suite that asserts on those attributes or ids needs its assertions
+  loosened.  Grep your **whole tree**, not just the code you ship — a consumer's tests are
+  precisely where its picture of this markup is written down, and that is where these pins
+  turn out to live.
+- **Live JavaScript that reads a mark's drawn paint.**  Reading `el.getAttribute('fill')` to
+  learn what color the station drew a mark in — a reasonable thing to do, and the way to
+  avoid hard-coding a palette — now returns `null`, with no error and no visible symptom
+  beyond the thing quietly not happening.  This is not hypothetical: it is how
+  weewx-celestial's live dome derived a satellite's sunlit and in-shadow looks, and at 2.4
+  the dot simply stopped flipping.
+
+  Two replacements, both palette-agnostic.  `getComputedStyle(el).fill` gives the resolved
+  color whether it came from an attribute or a class.  Or read the **class pair** on a mark
+  that has two states — a satellite marker (`data-sunlit`) or a comet's (`data-bright`).
+  Those are drawn as one pair of roles exchanged: `class="sky-fill-brass sky-stroke-halo"`
+  when lit, `class="sky-fill-halo sky-stroke-brass"` when not, so exchanging the two suffixes
+  inverts the mark without naming a color — the class form of swapping the `fill` and
+  `stroke` attributes 2.3.x wrote.
+
+  Each panel's `<style>` defines **both channels of every role it uses**, precisely so that
+  swap always lands on a rule.  Without that guarantee it would depend on what the chart
+  happened to draw: a pass chart's satellite is sunlit at culmination — that is what makes
+  the pass visible — so nothing on that chart ever fills with halo, the swapped mark would
+  ask for `.sky-fill-halo`, find no rule, and fall back to the SVG initial.  Black, for a
+  fill: a solid black disc where a hollow white ring belongs, with nothing logged.  The
+  guarantee holds for role pairs, not for any two classes on a mark — a planet dot's fill and
+  stroke are *different* roles (`body` and `ring`), and exchanging those means nothing.
+
+The consumer hooks are untouched and are the durable thing to match on: `data-body`,
+`data-sunlit`, `data-bright`, `data-dome-ts`, and the `dome-body`/`dome-track` classes.
+
+### How the defaults are scoped
+
+Each `<svg>` carries `class="sky sky-night"` or `class="sky sky-light"`, and its defaults are
+written against it:
+
+```css
+:where(svg.sky-night) :where(.sky-fill-ink) { fill: #E9E4D4 }
+```
+
+Both halves are wrapped in `:where()`, which contributes no specificity, so **any rule naming
+one class beats the default** wherever that rule sits:
+
+```css
+.theme-light .sky-fill-ink { fill: #1d2c4e }   /* wins */
+.sky-fill-ink              { fill: #1d2c4e }   /* also wins */
+```
+
+One honest edge: a rule that *also* scores zero — a bare `:where(.sky-fill-ink)` — ties with
+the default, and a tie is broken by document order.  The defaults ride inside the SVG, in the
+body, so a zero-specificity rule in your `<head>` loses.  Name a class and the question does
+not arise.
+
+The plate class is what makes the defaults local to the panel that carries them.  A `<style>`
+inside inline SVG is **not** scoped to that SVG in an HTML document — it applies document-wide
+— so without it, two panels of different plates on one page would repaint each other, and the
+last one in the document would win for both.  That case is real: a night dome beside light
+panels is exactly what a skin reconciling a fixed-plate chart with a themed page ends up with.
+
+### The HTML swatches
+
+The `.dot` swatches in the HTML blocks — `chips_html`, `satellites_html` and `table_html` —
+are HTML rather than SVG, so they cannot bring a `<style>` element with them and their color
+has to ride inline.  It rides as **custom properties**, never as `background` itself:
+
+```html
+<div class="chip" data-body="mars"><span class="dot" style="--sky-dot:#b23a24"></span>…
+<tr data-body="venus"><td class="tname"><span class="dot"
+    style="--sky-dot:#F0E4BE;--sky-dot-ring:#97864A"></span>…
+```
+
+(Both from the light plate, which is the one that gives pale bodies a ring.  The night
+plate declares none, so it sets no `--sky-dot-ring` at all and the shadow falls back to
+transparent.)
+
+That distinction is the whole of it.  An inline `background` would outrank every rule a
+consuming skin could write short of `!important`; setting only the variables leaves
+`background` free, and `sky.css`'s `.dot` rule reads them:
+
+```css
+.dot{background:var(--sky-dot); box-shadow:inset 0 0 0 1.5px var(--sky-dot-ring, transparent)}
+```
+
+**If you copy rules piecemeal rather than the whole file, you need that one** — without it the
+swatches lose their color.  (`--sky-dot-ring` is set only for the pale bodies the light plate
+gives a ring; the fallback keeps the shadow invisible otherwise.)
+
+Every chip is a `<div class="chip" data-body="…">` and every table body row a
+`<tr data-body="…">`, carrying the same tag name the dome's marks use — so a theme rule aims
+at the body, not at translated text:
+
+```css
+.theme-light [data-body="mars"] .dot { background: #b23a24 }
+```
+
+`data-body` on these rows is new in 2.4; the satellite and comet rows carry their configured
+tag name, exactly as the dome's markers do.
 
 ## The sky dome — `dome_svg`
 
@@ -459,9 +613,10 @@ own `[[YourReport]]` section is the only step:
 inherit that logic rather than writing it; `palette()` returns the matching palette name to
 hand to every panel call.  Resolve the pair **once** per page and reuse it: each panel call
 is individually guarded, so resolving inside each one would let a typo'd theme value cost
-every chart while the rest of the page rendered.  And because the colors are baked into the
-markup at generation time, this is a generation-time choice — a browser toggle cannot move
-it.
+every chart while the rest of the page rendered.  The palette a panel is rendered with is
+still a generation-time choice — but since 2.4 it is only the *default*: the marks carry role
+classes, so a browser toggle can repaint them (see
+[the role classes](#restyling-the-marks--the-role-classes)).
 
 `$sky_page.header_sub($almanac)` returns The Sky page's one-line subtitle — station
 coordinates and the almanac time, e.g. `37.44° N · 122.14° W · Saturday, June 21 2025,

@@ -109,8 +109,11 @@ the needle on hardware that is struggling.
 Everything above is the default `theme = dark`.  `theme = light` draws the same page on a
 paper-atlas plate — a cream page, a white sky dome with the stars inked on it, and the same
 body colors darkened to hold their own on paper.  It is the whole page that changes, charts
-included, and the colors are baked into the markup at generation time, so nothing switches in
-the browser; `theme = auto` picks per report cycle, light while the sun is up.
+included, and the plate is chosen at generation time: the bundled page has no switch in it,
+and `theme = auto` picks per report cycle, light while the sun is up.  (An embedding skin can
+go further — since 2.4 the charts' marks carry role classes a stylesheet can repaint, which is
+what a per-reader light/dark control needs; see
+[the role classes](panels.md#restyling-the-marks--the-role-classes).)
 
 ![The Sky page on the light theme](https://raw.githubusercontent.com/chaunceygardiner/weewx-skyfield/main/screenshots/SkyfieldSampleReport-light.png)
 
