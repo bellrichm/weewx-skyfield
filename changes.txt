@@ -1,6 +1,150 @@
 weewx-skyfield change history
 -----------------------------
 
+2.6.1 (2026/09/15)
+------------------
+- ACTION REQUIRED only if your skin overrides the Sky page's [Texts] for
+  a date, clock or duration format: six keys are renamed, and an
+  override under the old name silently stops applying.  "%a %b %-d" is
+  now "%a, %b %-d", "%b %-d %Y" is "%b %-d, %Y", "%A, %B %-d %Y, %-H:%M
+  %Z" is "%A, %B %-d, %Y, %-I:%M %p %Z", "{h}h {m}m" is "{h} h {m} m",
+  "in {m} min" is "in {m} m", and the satellites panel's "appears {rise}
+  · peaks {alt}° {culm} · disappears {set} · {m} min" ends "{m} m".
+  A translation that is not one of the nine bundled languages should add
+  the new "%-I:%M %p" key (to "%H:%M" for 24-hour times), or its clock
+  times read 12-hour, and the new "{date}, {time}" key (to "{date} {time}"
+  for no comma).
+- Clock times on the English Sky page read 12-hour, "8:45 PM" where they
+  read "20:45": the rise and set timeline, the planet table, the chips,
+  the pass chart, the sky dome's pass times, the moon's perigee and
+  apogee, and The Sun's Path's moonrise, moonset and transit labels, which
+  had read the skin's time format with seconds ("16:47:33").  The other bundled languages keep 24-hour times.  An English
+  report running in a locale with no AM/PM reads 24-hour as well, rather
+  than printing a bare "8:45".
+- Dates carry their comma: "Aug 17, 2027" on the eclipse chip, "Sun, Jun
+  22" on the pass chart, the header's date, and a date with its time,
+  "Jun 22, 3:11 AM" on the satellites panel and the moon's perigee and
+  apogee.
+- Durations are spaced and unpadded: "14 h 6 m" where they read "14h 06m",
+  the equation of time reads "-1 m 56 s", its axis "+10 m", and a
+  satellite pass counts down "in 5 m" and lasts "6 m".  The other
+  bundled languages write minutes one way throughout, as "min": the
+  equation of time had read "-1m 56s" in every language, and Danish and
+  Dutch durations "14h 44m" and "14u 44m" beside "om 5 min" and "over 5
+  min"; they now read "14 h 44 min" and "14 u 44 min".  Minutes are no
+  longer zero-padded in any language, and a number never wraps away from
+  its unit.
+- The Rise & Set panel's time column widens to fit 12-hour times rather
+  than running off the right edge.
+- A satellite pass just under a day away no longer counts down "in 24 h",
+  which the row's day count never prints.  The hour step rounded, so it
+  also read later than the pass was -- "in 2 h" for a pass 1 h 40 m out.
+  Every step now counts down to the whole unit reached, as the minute and
+  day steps already did.
+
+2.6 (2026/09/14)
+----------------
+- ACTION REQUIRED only if your skin copies the Sky page's night colors
+  into its own stylesheet: they have moved, and a copied value will no
+  longer match the panels.  `--muted` is now #C0C5D9 (was #8B93B8),
+  `--brass` #E0C27F (was #D3A94C), `.conlab` #BBC5E3 (was #9DABD7), and
+  `.skylab` and `.starlab` now take `var(--muted)` (were #9FA5C4).  The
+  night palette's `muted`, `brass` and `dome_rim` follow, night Mars is
+  #D06C56 (was #CE6750), and the paper plate's moon ring is #868686 (was
+  #888888).  A skin that styles the classes rather than copying hexes
+  needs nothing.
+- Every piece of text on the Sky page now clears WCAG 2 contrast 4.5 and
+  APCA Lc 60, in both themes, and every mark that must be seen clears 3.0
+  and Lc 30.  The night theme's secondary gray and its brass accent read
+  Lc 43 and Lc 58 against the panels, and the dome's star, constellation
+  and degree labels Lc 46: each passed the WCAG ratio and each was hard to
+  read.  They are lighter.  Measured on the rendered page glyph by glyph as well
+  as by color, which is how a label drawn on the dome's gradient was
+  scored against the gradient rather than against the panel.
+- Star and constellation names on the sky dome are drawn at full strength
+  at every hour.  While the sun was up they dimmed along with the star
+  field, to where they could not be read against the daytime sky; the
+  stars and constellation figures still dim.
+- Labels on the sky dome and the pass chart step clear of body marks.  A
+  planet's name could land on the sun's disc, and a pass's rise or set
+  time on the moon's, where each read against the disc rather than the
+  sky.  Names and times now step clear of every body where there is room,
+  and a star or constellation name with no room beside its mark is left
+  off, as it already was when it met another label.
+- In the night theme the sun path's hour numbers could sit on the sun's
+  yellow arc and vanish.  The labels and marks drawn over the twilight
+  bands now carry a casing in the night band's color, as the light theme's
+  already did, so a label reads against its casing wherever the arc runs
+  under it.
+
+2.5 (2026/09/12)
+----------------
+- ACTION REQUIRED only if you print a satellite time and want it to keep
+  reading as a bare clock time: satellite times now render with their date.
+  `$almanac.iss.next_visible_pass.rise` printed `03:11:25 AM`, which reads
+  as tonight; it now prints `06/22/2025 03:11:25 AM`.  To get the old look
+  back on one tag, format it in place --
+  `$almanac.iss.next_visible_pass.rise.format(format_string="%X")` --
+  rather than overriding
+  `[Units] [[TimeFormats]] ephem_year`, which would also restyle the
+  equinoxes, the moon-phase finders, meteor-shower peaks and a comet's
+  perihelion.  Values are unchanged, and any tag read through `.raw` --
+  which is how every live page here reads them -- is untouched.
+- New: label layers on the sky dome and the pass chart, for a page that
+  serves a phone layout and a desktop layout from one URL.  `dome_svg` and
+  `pass_chart_html` take `label_layers=[(scale, media_query), ...]` beside
+  `label_scale`: the marks are drawn once, the labels are laid out once per
+  scale -- each layout with its own collision pass, so the bigger names
+  find their own room -- and the chart's own `<style>` shows the layer whose
+  media query the reader's viewport matches.  Nothing is fetched and
+  nothing scripted; the chart is written once per report cycle and the
+  browser picks the layer.  Each layout sits in `<g class="dome-labels"
+  data-label-scale="...">`, the base layout included, and the `<svg>` root
+  names its scales and its queries (`data-label-layers`,
+  `data-label-media`), which the rules are scoped to, so any mix of charts
+  shares a page without one chart's rules reaching another's labels.  A
+  query is held to the characters a media query needs, its parentheses
+  balanced (`(max-width: 600px)`; the range syntax `(width < 600px)` is
+  refused, because the query is written inside inline SVG where `<` is
+  markup), and a bad query, scale or pair raises a template error naming
+  what is allowed.  See docs/panels.md.  Asked for by weewx-celestial, whose
+  9.3 had been fetching a second fragment set per scale to get the same
+  effect.
+- Changed, on every dome and pass chart: the labels now all sit together in
+  one `<g class="dome-labels">` group at the end of the SVG.  The cardinals,
+  the 30/60-degree ring figures and a pass's rise and set times used to be
+  written beside the marks they annotate; the ring figures therefore now
+  draw above the stars rather than under them, so a star no longer prints
+  over a figure.  Every label's position and size is unchanged for the
+  same `label_scale`; an embedding page that finds labels by class or by
+  `data-body` sees the same elements.  A live page that moves a label by
+  its `data-body` should use `querySelectorAll`, since a layered chart
+  carries one copy per layer.
+- Changed: `label_scale` is checked.  A value that is not a positive number
+  raises a template error naming the argument; it used to render 0px
+  labels for a zero and blank the panel with a TypeError in the log for
+  text.  Text that reads as a number (`label_scale='0.8'`) is accepted.
+- Fixed: the times a satellite reports were built in the wrong units
+  context.  A pass is searched across the orbital elements' seven-day
+  validity window, so the pass times routinely name an instant one to seven
+  days out; they were built as `ephem_day`, "an instant within the current
+  day", whose default format is time only.  A pass three days away did not
+  merely lose its date -- it read as tonight.  They are now `ephem_year`,
+  which is what every other multi-day instant this extension reports
+  already used.  Six tags: `rise`, `culmination` and `set` on both
+  `next_pass` and `next_visible_pass`, and the satellite's own `rise`,
+  `transit` and `set`, which come off the same pass list.
+- Fixed: the ISS pass recipe in the manual could not be used.  It opened
+  `#set $pass = ...`, and `pass` is a Python keyword, so Cheetah refused to
+  compile the template: a reader who pasted the recipe got a report that
+  generated nothing and said why only in the log.  The snippet now uses
+  `$iss_pass`.  A new audit compiles every Cheetah block the manual
+  publishes, which is a different question from the existing audit that
+  evaluates their tag chains -- every chain in that recipe resolved.
+- New in the manual: "How far away a time can be" in Values, units and
+  types, which says which contexts these tags use and how to restyle them.
+  The ISS recipe and the tag index say so at the point of use.
+
 2.4 (2026/09/08)
 ----------------
 - ACTION REQUIRED, and only on a station that uses the `$sky_page` panels

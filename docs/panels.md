@@ -45,15 +45,17 @@ not in English:
    2.4 added two: `bandlab`, for the labels that sit on the twilight bands rather than on
    the panel, and a `.dot` rule that paints the chip and table swatches from the custom
    property the markup now carries — without that one the swatches have no color at all.
-   2.2 added one more, `skylab`, the sky charts' 30°/60° ring-degree labels, and that one
-   fails more gently — which is exactly why it is worth reading about.
+   2.2 added one more, `skylab`, the sky charts' 30°/60° ring-degree labels.
 
-   Those labels carry `class="mono gridlab skylab"`, so a skin without a `skylab` rule gets
-   `gridlab`'s color rather than the 16px default — the label looks fine and simply misses
-   the 2.2 contrast lift.  Two things to watch when you add it: `skylab` and `gridlab` are
-   equal specificity and both match the element, so the `skylab` rule must come *after* your
-   `gridlab` rule; and if your `gridlab` rule is scoped (`.night .gridlab`), scope `skylab`
-   the same way or it will lose.
+   Those labels carry `class="mono gridlab skylab"`: `skylab` is the hook for text drawn on
+   the dome gradient rather than on the panel.  The bundled stylesheet gives it the same
+   color as `gridlab`, since every text color there clears its contrast bars on both
+   surfaces, so a skin without a `skylab` rule loses nothing.  If you add one to style dome
+   text apart, two things matter: `skylab` and `gridlab` are equal specificity and both
+   match the element, so the `skylab` rule must come *after* your `gridlab` rule; and if
+   your `gridlab` rule is scoped (`.night .gridlab`), scope `skylab` the same way or it
+   will lose.  Whatever color you give it must still read against the lighter rim of the
+   dome, not just the panel.
 
    The panels' tooltips are native SVG `<title>` elements, so they work on hover with no
    help — but hover does not exist on a touch screen.  The bundled skin ships
@@ -69,9 +71,14 @@ not in English:
    later; on 5.2 those stay English and Latin while everything in `[Texts]` still translates.
 
 The bundled template, `skins/Skyfield/index.html.tmpl`, shows every panel in use and is the
-reference for the wrapper markup mentioned below.  A failing panel never takes down report
-generation: the error is logged and that one panel renders blank.  Body evaluations are
-memoized, so several panels on one page do not repeat the expensive rise/set searches.
+reference for the wrapper markup mentioned below.  A panel that fails while computing never
+takes down report generation: the error is logged and that one panel renders blank.  A mistake
+in the call itself — an unknown palette, or a `label_scale` or `label_layers` value that is not
+usable — is different: it raises a template error, so it shows up while you are writing the
+template rather than shipping as a quietly empty panel (see
+[Troubleshooting](troubleshooting.md#a-page-stopped-updating-after-i-changed-a-sky_page-call)).
+Body evaluations are memoized, so several panels on one page do not repeat the expensive
+rise/set searches.
 
 Every render method takes an optional `palette` argument choosing the panel's colors:
 `'night'` (the default, used in the screenshots below) or `'light'`, a paper-atlas
@@ -113,7 +120,7 @@ one class per role would paint the inside of a stroked curve.
 | `sky-fill-line`, `sky-stroke-line` | gridlines and orbit circles drawn on the **panel** surface |
 | `sky-fill-grid`, `sky-stroke-grid` | the sky charts' altitude rings and the cross through the zenith, which read against the dome gradient instead |
 | `sky-fill-bandgrid`, `sky-stroke-bandgrid` | gridlines on the three panels that plot over twilight **bands** |
-| `sky-fill-bandcase`, `sky-stroke-bandcase` | the casing under those gridlines and under the data marks that cross the same bands.  Resolves to `none` on the night plate, which needs no casing — the element is always there, so a reader who flips to a light theme can be given one |
+| `sky-fill-bandcase`, `sky-stroke-bandcase` | the casing under those gridlines, under the data marks that cross the same bands, and under the labels drawn on them.  The night plate's is its night band's color, which covers the sun's arc beneath the sun path's hour numbers; the light plate's is white.  The element is always there, so a reader who flips themes gets the other plate's casing |
 | `sky-fill-bandedge`, `sky-stroke-bandedge` | the outline separating a body's identity color from the band under it |
 | `sky-fill-halo`, `sky-stroke-halo` | the stroke lifting body dots off the plate; also the interior of a hollow (shadowed satellite, faint comet) marker |
 | `sky-fill-conline`, `sky-stroke-conline` | the constellation figures |
@@ -171,8 +178,17 @@ Two places that can bite, and the second one bites silently:
   guarantee holds for role pairs, not for any two classes on a mark — a planet dot's fill and
   stroke are *different* roles (`body` and `ring`), and exchanging those means nothing.
 
-The consumer hooks are untouched and are the durable thing to match on: `data-body`,
-`data-sunlit`, `data-bright`, `data-dome-ts`, and the `dome-body`/`dome-track` classes.
+As of 2.5 the sky charts' labels no longer sit beside their marks.  Every label — the
+cardinals, the 30° and 60° ring figures, a pass's rise and set times, and the body, star and
+constellation names — is written inside `<g class="dome-labels" data-label-scale="1">` at the
+end of the SVG, one group per [label layer](#the-sky-dome--dome_svg), and the `<svg>` root
+carries `data-label-layers` (plus `data-label-media` when there is an extra layer).  Positions
+and sizes are unchanged, but the ring figures now draw above the stars, and a test that expects
+a label next to its mark, or exactly one element per `data-body`, needs loosening.
+
+The consumer hooks are the durable thing to match on: `data-body`, `data-sunlit`,
+`data-bright`, `data-rise`/`data-set`, the `dome-body`/`dome-track` classes, and (2.5 and
+later) the `dome-labels` groups with their `data-label-scale`.
 
 ### How the defaults are scoped
 
@@ -261,7 +277,32 @@ mark.  When the sun is up the stars are shown dimmed, standing where they are be
 daylight (`sun_is_up`, below, lets a caption react).  `dome_svg` additionally takes
 `label_scale` (default 1.0), which grows every label by that factor with the collision layout
 following along — useful when a skin displays the chart scaled down, such as a fixed-canvas
-smartphone page: `$sky_page.dome_svg($almanac, palette='light', label_scale=2.2)`.
+smartphone page: `$sky_page.dome_svg($almanac, palette='light', label_scale=2.2)`.  It must
+be a positive number — numeric text such as `'0.8'` is accepted — and anything else raises a
+template error naming the argument (2.5 and later; before 2.5 a zero rendered 0px labels and
+text blanked the panel).
+
+A page that serves more than one layout from a single URL — a desktop layout and, below some
+width, a phone layout — asks for both label sizes at once with `label_layers` (2.5 and later), a
+list of `(scale, media_query)` pairs:
+
+```
+$sky_page.dome_svg($almanac, label_scale=0.8, label_layers=[(2.2, '(max-width: 600px)')])
+```
+
+The marks are drawn once.  The labels are laid out once per scale, each layout in its own
+`<g class="dome-labels" data-label-scale="…">` (the base layer is wrapped the same way, always,
+layers or not), and the chart's own `<style>` shows the layer whose media query the reader's
+viewport matches and hides the rest — nothing is fetched and nothing scripted.  The rules are
+scoped to the chart's plate, its scales and its queries (`data-label-layers="0.8 2.2"` and a
+`data-label-media` key on the `<svg>` root), so any mix of charts shares a page without one
+chart's rules reaching another's labels; within one chart, give two extra layers queries that
+cannot both match.  A query may contain only letters, digits, spaces and `: ( ) , . -`, with
+its parentheses balanced — it is written inside inline SVG, where `<` and `&` are markup — so
+`(max-width: 600px)` and `screen and (orientation: portrait)` are fine and the range syntax
+`(width < 600px)` is refused.  A bad query, scale or pair raises a template error at render
+time rather than blanking the panel.  A live page that moves a mark's label by
+its `data-body` must move *every* layer's copy (`querySelectorAll`, not `querySelector`).
 
 The dome plots *every* star of the bundled Hipparcos catalog down to the magnitude limit — a
 true sky map.  Labels stay on named stars; an unnamed star's hover tooltip gives its
@@ -291,7 +332,8 @@ An embedding skin that repositions dome marks between report cycles — weewx-ce
 dome is the consumer — locates them by machine name, never by tooltip text (which is
 translated): the sun's, moon's and each planet's marks are wrapped in
 `<g class="dome-body" data-body="mars">`, their name labels carry the same `data-body`
-attribute, and a satellite's position dot gets its tag name the same way plus
+attribute (one copy per label layer, all of them inside `<g class="dome-labels">` groups —
+move every copy), and a satellite's position dot gets its tag name the same way plus
 `data-sunlit="1"` or `"0"`, so a live layer can flip the dot between solid and hollow as
 the satellite crosses the shadow line.  A comet's diamond carries `data-bright="1"` or
 `"0"` the same way.  On the pass chart the arc's own group,
@@ -328,8 +370,8 @@ $sky_page.pass_chart_html($almanac)
 The whole sky as it will stand at the culmination of the soonest upcoming
 [visible pass](tags.md#satellites) among the configured satellites, with the pass drawn
 across it as a dashed arc — rise and set times at the endpoints, the satellite's own dot at
-the peak — under a dated head line naming the satellite and the pass ("ISS · Sun Jun 22 ·
-03:11 → 03:21 · peak 19°").  The peak dot can be the hollow in-shadow ring: a pass is
+the peak — under a dated head line naming the satellite and the pass ("ISS · Sun, Jun 22 ·
+3:11 AM → 3:21 AM · peak 19°").  The peak dot can be the hollow in-shadow ring: a pass is
 visible when *any* of it is sunlit in a dark sky, and a morning pass often exits Earth's
 shadow just after culminating — the chart honestly shows it flaring into view mid-sky.  One chart, one epoch: the arc crosses the stars it will
 actually cross, the per-pass convention sky-charting has always used for future events (the
@@ -349,8 +391,10 @@ out) — wrap it in a guard as the bundled template does:
 #end if
 ```
 
-Like `dome_svg` it takes `palette` and `label_scale`.  Its SVG ids (`skygp`, `domecp`) stay
-distinct from the dome's, so both charts share a page cleanly, and the `data-body` /
+Like `dome_svg` it takes `palette`, `label_scale` and `label_layers` (the head line is HTML
+outside the SVG, sized by the page's own CSS, and takes no part in the layers).  Its SVG ids
+(`skygp-night`, `domecp-night`, ending in the plate name like the dome's) stay distinct from
+the dome's, so both charts share a page cleanly, and the `data-body` /
 `dome-track` hooks appear here exactly as on the dome — the pass arc's group,
 `<g class="dome-track" data-body="iss">`, lives on this chart.  New CSS classes: `passhead`,
 `passname` and `passwhen` style the head line (see `sky.css`); the arc and its labels reuse
@@ -384,7 +428,7 @@ Today's sun, midnight to midnight, as altitude against azimuth — a dot every h
 every third.  The dashed curve is the moon's path, with the moon drawn at its true phase when
 above the plot floor; the bands below the horizon line are civil, nautical and astronomical
 twilight depth.  Moonrise, moonset and the transit are ticked and labeled on the moon's curve
-with times in the skin's format, and the curve's two ends — the moon's positions at 00:00 and
+with the page's clock times, and the curve's two ends — the moon's positions at 00:00 and
 24:00 — get dots labeled 00 and 24 when they clear the plot floor.  The curve is open between
 those ends because a lunar day runs about 50 minutes longer than a calendar day, so a day's
 track never quite closes; near full moon, when the moon transits around midnight, the break
@@ -527,7 +571,7 @@ configured.  The `chips` wrapper provides the single-column layout.
 One card per configured satellite (see [Satellites](installation.md#satellites)): its
 [next visible pass](tags.md#satellites) — the date and countdown in the countdown-chip
 idiom, rolling into "overhead now" during the pass itself, then "appears WSW · peaks 45° SSW
-· disappears NE · 6 min".  The rows are honest about nothing-to-see: a satellite with no
+· disappears NE · 6 m".  The rows are honest about nothing-to-see: a satellite with no
 visible pass in the coming week says so, and one with no usable orbital elements says
 *that*, pointing at the weewxd log — the panel never shows a stale pass.
 `$sky_page.has_satellites()` returns whether any satellites are configured, so a template
@@ -552,7 +596,7 @@ its time comes — and the next major [meteor shower](tags.md#meteor-showers) is
 there, its detail line carrying the moon's peak-night illumination as the interference
 judgment: a bright moon washes out the faint meteors, and the chip says so.  The days-to-go
 line counts local calendar days, so it always agrees with the date above it: an event just
-after midnight reads "in 1 day", and one later today reads "today at 21:14" — on the day
+after midnight reads "in 1 day", and one later today reads "today at 9:14 PM" — on the day
 itself the clock time is the one thing the chip is not already showing.  The
 `countdown` wrapper lays the chips out as a wrapping row.
 

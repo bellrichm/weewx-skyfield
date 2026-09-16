@@ -20,8 +20,9 @@ configuration.  For the drawn panels rather than the numbers, see
 [Panels in your own skin](panels.md).
 
 {: .note }
-Every tag chain on this page is evaluated against a real almanac by the test suite, so these
-read correctly as written.  What the suite cannot check is your skin's own HTML around them.
+The test suite evaluates every chain on this page that starts at `$almanac` against a real
+almanac, and compiles every snippet as a Cheetah template, so these read correctly as written.
+What the suite cannot check is your skin's own HTML around them.
 
 ## A twilight block
 
@@ -73,12 +74,12 @@ PyEphem's 0–1 fraction.  All three are different things; the
 ## Tonight's ISS pass
 
 ```
-#set $pass = $almanac.iss.next_visible_pass
-#if $pass.visible
-  The ISS appears $pass.rise ($pass.rise_azimuth.ordinal_compass),
-  peaks at $pass.max_altitude ($pass.culmination_azimuth.ordinal_compass),
-  and disappears $pass.set ($pass.set_azimuth.ordinal_compass).
-  Visible for $pass.duration.
+#set $iss_pass = $almanac.iss.next_visible_pass
+#if $iss_pass.visible
+  The ISS appears $iss_pass.rise ($iss_pass.rise_azimuth.ordinal_compass),
+  peaks at $iss_pass.max_altitude ($iss_pass.culmination_azimuth.ordinal_compass),
+  and disappears $iss_pass.set ($iss_pass.set_azimuth.ordinal_compass).
+  Visible for $iss_pass.duration.
 #else
   No visible ISS pass in the coming week.
 #end if
@@ -88,6 +89,14 @@ Guard on `.visible` rather than on a time: with no qualifying pass every attribu
 empty ValueHelper that renders `N/A`, and `.visible` is the flag that says so.
 `next_visible_pass` is deliberately strict — sunlit, sky dark, peaking at least 10° up — so
 use `next_pass` when you want every pass regardless of whether you could see it.
+
+The three times print with their date — `06/22/2025 03:11:25 AM` — because the pass being
+reported is anywhere in the coming week, which is what the `#else` branch above admits.
+To print a bare clock time instead, format the tag in place:
+`$iss_pass.rise.format(format_string="%X")`.  Avoid overriding `ephem_year` in `[Units]`
+`[[TimeFormats]]` for this: that also restyles the equinoxes, the moon-phase and apsis finders,
+meteor-shower peaks and a comet's perihelion (see [how far away a time can
+be](values-and-units.md#how-far-away-a-time-can-be)).
 
 If a satellite's elements have gone stale, everything reads `N/A` and these two say why:
 

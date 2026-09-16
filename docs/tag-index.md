@@ -30,7 +30,7 @@ story; the short version:
 
 | Type in this page | What you get |
 |---|---|
-| **time** | A time ValueHelper.  Renders as a formatted time; `.raw` is a unix timestamp.  Empty (`N/A`) when there is no answer. |
+| **time** | A time ValueHelper.  Renders as a formatted time, with or without its date depending on [how far away it can be](values-and-units.md#how-far-away-a-time-can-be); `.raw` is a unix timestamp.  Empty (`N/A`) when there is no answer. |
 | **duration** | A `group_deltatime` ValueHelper.  Pin the unit when reading `.raw` — see [the .raw trap](values-and-units.md#the-raw-trap). |
 | **angle** | A `group_angle` ValueHelper, carried internally in radians and rendered per the report's settings. |
 | **compass** | A `degree_compass` ValueHelper, so `.ordinal_compass` renders `WSW`. |
@@ -224,9 +224,9 @@ satellites.  Configure them under `[Skyfield]` `[[Satellites]]` — see
 | `dec` / `topo_dec` | float ° / angle | 2.0 | Topocentric declination of date. |
 | `distance` | distance | 2.0 | Slant range, observer to satellite: a `group_distance` ValueHelper honoring the report's distance units, not the bodies' AU. |
 | `sunlit` | bool | 2.0 | Whether the satellite is in sunlight.  `None` with no usable elements. |
-| `rise` | time | 2.0 | The *next* rise, not today's. |
-| `transit` | time | 2.0 | The next culmination. |
-| `set` | time | 2.0 | The next set. |
+| `rise` | time | 2.0 | The *next* rise, not today's — and it renders with its date, being up to a week out. |
+| `transit` | time | 2.0 | The next culmination, dated for the same reason. |
+| `set` | time | 2.0 | The next set, dated for the same reason. |
 | `next_pass` | object | 2.0 | The next pass, or the one in progress — see [pass attributes](#pass-attributes). |
 | `next_visible_pass` | object | 2.0 | The next pass worth watching: sunlit against a sky with the sun below −6°, peaking at least 10° up. |
 | `elements_epoch` | time | 2.0 | The TLE's epoch.  Always live. |
@@ -236,7 +236,8 @@ satellites.  Configure them under `[Skyfield]` `[[Satellites]]` — see
 
 Attributes of `next_pass` and `next_visible_pass`.  All are plain attributes, never methods,
 so `getattr` chains (loopdata almanac fields) walk them.  With no qualifying pass, every one
-is empty.
+is empty.  The three times render with their date, since the pass can be up to a week out —
+see [how far away a time can be](values-and-units.md#how-far-away-a-time-can-be).
 
 | Attribute | Type | Notes |
 |---|---|---|
