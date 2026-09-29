@@ -1,8 +1,6 @@
-weewx-skyfield change history
------------------------------
+# weewx-skyfield change history
 
-2.7.2 (in progress)
--------------------
+## 2.7.2 (in progress)
 - On the dark Sky page the lines between rows and sections can be seen.
   The rules between the planet and satellite rows, between the table's
   rows, under the header and over the footer were drawn in the color of
@@ -15,8 +13,7 @@ weewx-skyfield change history
   card and --page-divider for lines on the page, both #C9CFD8 on the
   light theme.
 
-2.7.1 (2026/09/20)
-------------------
+## 2.7.1 (2026/09/20)
 - The Sky page's Next Visible Pass chart is drawn at a readable size.
   It is the same size of drawing as the sky dome, but it sat in the
   page's fixed-width side column, which drew it at 58 percent and put
@@ -26,8 +23,7 @@ weewx-skyfield change history
   directly below the dome, where the page is wide enough to draw it, and
   reads at the same size the dome does.  Nothing is left off the chart.
 
-2.7 (2026/09/20)
-----------------
+## 2.7 (2026/09/20)
 - The Sky page reads on a phone.  Every chart is now drawn twice -- the
   wide drawing this page has always shown, and a second one laid out for
   a hand -- and the page shows whichever the reader's screen calls for,
@@ -57,7 +53,7 @@ weewx-skyfield change history
   sizes with it, so no stylesheet work is needed to use one; the manual's
   panels page has the three lines of CSS for serving both from one URL,
   and what each panel thins.
-- A narrow sky chart declares its own center and radius on the <svg>
+- A narrow sky chart declares its own center and radius on the `<svg>`
   root, as data-dome-cx, data-dome-cy and data-dome-r.  A live page that
   repositions marks by projecting altitude and azimuth needs them: the
   narrow dome is not the wide dome's 340/348/296, and a chart without
@@ -89,8 +85,7 @@ weewx-skyfield change history
   from 49 KB to 77 KB gzipped).  Both drawings come out of the same
   almanac evaluations; only the markup is built twice.
 
-2.6.2 (2026/09/19)
-------------------
+## 2.6.2 (2026/09/19)
 - A deviation from WeeWX's built-in almanac, which is incorrect here:
   visible_change() with use_center=1 measures both days to the body's
   center.  WeeWX measures today to the center and the earlier day to the
@@ -102,8 +97,7 @@ weewx-skyfield change history
   as for the sun.  Without use_center the two almanacs agree and nothing
   changes.  See "Differences from PyEphem" in the manual's accuracy page.
 
-2.6.1 (2026/09/15)
-------------------
+## 2.6.1 (2026/09/15)
 - ACTION REQUIRED only if your skin overrides the Sky page's [Texts] for
   a date, clock or duration format: six keys are renamed, and an
   override under the old name silently stops applying.  "%a %b %-d" is
@@ -143,8 +137,7 @@ weewx-skyfield change history
   Every step now counts down to the whole unit reached, as the minute and
   day steps already did.
 
-2.6 (2026/09/14)
-----------------
+## 2.6 (2026/09/14)
 - ACTION REQUIRED only if your skin copies the Sky page's night colors
   into its own stylesheet: they have moved, and a copied value will no
   longer match the panels.  `--muted` is now #C0C5D9 (was #8B93B8),
@@ -178,8 +171,7 @@ weewx-skyfield change history
   already did, so a label reads against its casing wherever the arc runs
   under it.
 
-2.5 (2026/09/12)
-----------------
+## 2.5 (2026/09/12)
 - ACTION REQUIRED only if you print a satellite time and want it to keep
   reading as a bare clock time: satellite times now render with their date.
   `$almanac.iss.next_visible_pass.rise` printed `03:11:25 AM`, which reads
@@ -246,8 +238,7 @@ weewx-skyfield change history
   types, which says which contexts these tags use and how to restyle them.
   The ISS recipe and the tag index say so at the point of use.
 
-2.4 (2026/09/08)
-----------------
+## 2.4 (2026/09/08)
 - ACTION REQUIRED, and only on a station that uses the `$sky_page` panels
   WITHOUT this extension's almanac registered: the sky dome now renders
   empty there.  With PyEphem installed such a station previously got a
@@ -372,8 +363,7 @@ weewx-skyfield change history
   lands on a rule rather than on the SVG initial.  Nothing else about page generation or
   its cost changes.
 
-2.3.5 (2026/08/30)
-------------------
+## 2.3.5 (2026/08/30)
 - The install no longer looks hung while it downloads orbital elements.  It
   now says what it is fetching -- satellite elements from CelesTrak, comet
   elements from the Minor Planet Center -- before each download rather than
@@ -392,8 +382,7 @@ weewx-skyfield change history
 - One satellite's failed fetch no longer skips the satellites after it in
   the list.
 
-2.3.4 (2026/08/30)
-------------------
+## 2.3.4 (2026/08/30)
 - The `[Skyfield]` stanza a fresh install writes into weewx.conf explains
   itself.  Every option now arrives with a comment above it saying what it
   does, where the installer used to write bare `key = value` lines; the
@@ -415,8 +404,7 @@ weewx-skyfield change history
   has to draw a dome to learn whether it could.  Public contract, like
   satellite_names().
 
-2.3.3 (2026/08/16)
-------------------
+## 2.3.3 (2026/08/16)
 - Comets work on Skyfield 1.47 through 1.50 again.  On those versions a
   configured comet's rise, set and transit tags raised "non-broadcastable
   output operand with shape (3,1) doesn't match the broadcast shape
@@ -432,8 +420,7 @@ weewx-skyfield change history
   depend on which Skyfield is installed.  Reported by hathawaydave
   (issue #7) on Skyfield 1.48.
 
-2.3.2 (2026/08/15)
-------------------
+## 2.3.2 (2026/08/15)
 - The pass chart's arc states the pass's own window: the
   `<g class="dome-track" data-body="…">` element the consumer contract
   already names now carries `data-rise` and `data-set`, the pass's rise
@@ -449,16 +436,14 @@ weewx-skyfield change history
   ended.  Nothing on this extension's own pages changes; the Sky page
   renders exactly as before.
 
-2.3.1 (2026/08/15)
-------------------
+## 2.3.1 (2026/08/15)
 - Two French phrases on the satellites panel read idiomatically: a pass's
   highest point is a verb phrase, "culmine à 19°", where the file had the
   bare noun "culmination 19°".  Both strings are shared verbatim with
   weewx-celestial, and Jacques Terrettaz caught them there in a full
   re-read of that skin's French.
 
-2.3 (2026/08/14)
-----------------
+## 2.3 (2026/08/14)
 - ACTION REQUIRED, only if a skin of yours passes palette='classic-night'
   or palette='classic-light' to a $sky_page panel: those two palettes are
   gone.  The names still render -- they now draw the current 'night' and
@@ -516,8 +501,7 @@ weewx-skyfield change history
   center of the dome already dark.  README, home page and the
   Live-updating pages chapter.
 
-2.2 (2026/08/14)
-----------------
+## 2.2 (2026/08/14)
 - The Sky Dome and Next Visible Pass charts are easier to read on both
   plates.  The altitude rings and the cross through the zenith were drawn
   in the panel border color, invisible against the dome (1.07:1); they
@@ -539,11 +523,10 @@ weewx-skyfield change history
   reads against that instead, the way a road on a map stays legible over
   land and water alike.
 
-2.1.3 (2026/08/13)
-------------------
+## 2.1.3 (2026/08/13)
 - Fixed: on WeeWX 5.2, every tag that carries a display name --
-  $almanac.<body>.label, .constellation.label and
-  $almanac.next_meteor_shower.label -- reported an error instead of a
+  `$almanac.<body>.label`, `.constellation.label` and
+  `$almanac.next_meteor_shower.label` -- reported an error instead of a
   name, and the Sky page, which uses them for its body names and its
   constellation figure labels, failed with them.  Those names come from
   the report's [Almanac] section, which WeeWX only hands to an almanac
@@ -567,8 +550,7 @@ weewx-skyfield change history
   so a translation chooses its own word order, and it ships in all nine
   bundled languages.
 
-2.1.2 (2026/08/12)
-------------------
+## 2.1.2 (2026/08/12)
 - Fixed: a countdown chip disagreed with its own date.  An event later
   today read "in 1 day" beside today's date -- Jacques Terrettaz saw it
   on the morning of the 2026-08-12 partial solar eclipse, and on that
@@ -598,8 +580,7 @@ weewx-skyfield change history
   matching, if the sentence carrying it is reworded away, or if a
   total download size creeps back into the prose.
 
-2.1.1 (2026/08/12)
-------------------
+## 2.1.1 (2026/08/12)
 - Fixed: on a narrow screen the Sky page opened with the Equation of
   Time panel instead of the dome.  Below the 1159px breakpoint the
   page's two columns dissolve into one and the panels are resequenced
@@ -672,8 +653,7 @@ weewx-skyfield change history
   a recipe whose tag chain no longer evaluates.  Documentation drift is
   a test failure now, rather than something a user finds.
 
-2.1 (2026/08/10)
------------------
+## 2.1 (2026/08/10)
 - ACTION REQUIRED (isolated networks only): 2.1 adds this extension's
   second runtime download.  With comets configured -- the installer
   configures Halley and Hale-Bopp -- weewxd fetches the Minor Planet
@@ -692,7 +672,7 @@ weewx-skyfield change history
   1997 great comet, now ~49 AU out and receding; dec -85, so it never
   rises from northern stations and costs a northern dome nothing) --
   and each entry serves the full planet-style surface: rise/set/
-  transit and the whole next_/previous_ family, alt/az and every ra/dec
+  transit and the whole `next_`/`previous_` family, alt/az and every ra/dec
   flavor, distance/distance_from_sun (and the raw AU floats),
   elongation, visible, illumination, constellation, and mag.  The value
   is the designation as the MPC file prints it (12P, C/2023 A3,
@@ -763,7 +743,7 @@ weewx-skyfield change history
   radiant with a rayed glyph -- meteors stream outward from that
   point -- ZHR and peak date in the tooltip.
 - New unit-aware distance tags for every body, stars included:
-  $almanac.<body>.distance (from Earth -- mirroring the satellites,
+  `$almanac.<body>.distance` (from Earth -- mirroring the satellites,
   whose .distance is likewise the distance from the observer) and
   .distance_from_sun are ValueHelper twins of the raw AU floats
   earth_distance/sun_distance -- "1.8588 AU" by default in every unit
@@ -774,7 +754,7 @@ weewx-skyfield change history
   family (default format %.4f, default label " AU").  A star whose
   catalog record has no measured parallax has no known distance: its
   twins report N/A rather than a fictitious number.
-- $almanac.<body>.illumination is the ValueHelper twin of the raw
+- `$almanac.<body>.illumination` is the ValueHelper twin of the raw
   percent-illuminated float phase (and of the moon's moon_fullness
   alias): the same value in group_percent, honoring the report's
   percent formatting.  mag keeps no twin, deliberately: a magnitude
@@ -811,7 +791,7 @@ weewx-skyfield change history
   Served by the new $sky_page.eot_svg for embedding skins;
   translated in all nine bundled languages.
 - Earth's own apsides are tags: $almanac.next_perihelion and
-  $almanac.next_aphelion (with previous_ twins), top-level like
+  $almanac.next_aphelion (with `previous_` twins), top-level like
   next_solstice -- the closest and farthest approach to the sun, early
   January and early July, the same geometric-extremum machinery as the
   moon's apsides and matching the published instants within a minute.
@@ -831,8 +811,7 @@ weewx-skyfield change history
   $sky_page.moon_apsides_html for embedding skins; translated in all
   nine bundled languages.
 
-2.0 (2026/08/08)
------------------
+## 2.0 (2026/08/08)
 - ACTION REQUIRED (isolated networks only): 2.0 is this extension's
   first release that downloads anything at runtime.  With satellites
   configured -- the installer configures the ISS and Tiangong -- weewxd
@@ -861,15 +840,15 @@ weewx-skyfield change history
   $almanac(horizon=10).iss.next_pass reuses the existing horizon
   argument; an in-progress pass IS next_pass until it sets.  For a
   satellite, .rise/.transit/.set are the next occurrence from the
-  almanac's time, transit meaning culmination.  sat_<norad> is an
-  alternate spelling for a listed satellite, mirroring hip_<number>.
+  almanac's time, transit meaning culmination.  `sat_<norad>` is an
+  alternate spelling for a listed satellite, mirroring `hip_<number>`.
   Elements whose epoch is more than seven days older than the almanac
   time are never used: every tag honestly reads "N/A" rather than
   reporting confidently wrong pass times (one log warning at the
   crossing, one at recovery), and the always-live diagnostics
   .elements_epoch and .elements_age say why.  On a failed fetch the
   old file is kept and the retry backs off; element files live one per
-  satellite, wxskyfield_sat_<norad>.tle, in a wxskyfield directory
+  satellite, `wxskyfield_sat_<norad>.tle`, in a wxskyfield directory
   under SQLITE_ROOT, and survive restarts (weectl extension uninstall
   does not remove them).  Deliberately absent: an apparent-magnitude
   tag (brightness models are hand-wavy; sunlit and max_altitude are
@@ -930,10 +909,10 @@ weewx-skyfield change history
   live as a satellite crosses the shadow line.
 - Every dome mark an embedding skin might reposition carries a
   machine-readable hook: the sun's, moon's and each planet's marks are
-  wrapped in <g class="dome-body" data-body="mars">, their name labels
+  wrapped in `<g class="dome-body" data-body="mars">`, their name labels
   carry the same data-body attribute, and a satellite's position dot
   gets its tag name the same way; the pass arc's group,
-  <g class="dome-track" data-body="iss">, lives on the Next Visible Pass
+  `<g class="dome-track" data-body="iss">`, lives on the Next Visible Pass
   chart, whose marks carry the same hooks as the dome's.  The tooltip
   text is translated and was never a usable selector.  And the
   configured satellite list is enumerable: $sky_page.satellite_names()
@@ -943,7 +922,7 @@ weewx-skyfield change history
   marks between report cycles through the hooks and builds its
   satellite roster and live layer from the list -- so they are stable.
 - The page's tooltips now answer taps.  Every mark's tooltip is a
-  native SVG <title>, which browsers show only on hover -- and a touch
+  native SVG `<title>`, which browsers show only on hover -- and a touch
   screen has no hover, so on an iPad every tooltip was simply dead.  A
   small dependency-free script, sky.js, installed and copied beside
   sky.css, now shows the same text in a floating chip when a mark is
@@ -954,11 +933,11 @@ weewx-skyfield change history
   the chip.  The two captions that said "Hover any mark" now say
   "Hover or tap", reworded in all nine shipped languages.  Embedding
   skins get the same fix by copying sky.js and sky.css's new .skytip
-  rule and loading the script with <script src="sky.js" defer> -- the
+  rule and loading the script with `<script src="sky.js" defer>` -- the
   panels' markup is unchanged.
 - The complete Hipparcos catalog now ships with the extension, as
   wxskyfield_stars.dat.gz -- all 118,218 stars, replacing the ~400
-  star excerpt.  Every $almanac.hip_<number> tag works out of the box
+  star excerpt.  Every `$almanac.hip_<number>` tag works out of the box
   (here, and on celestial and loopdata almanac fields), and the Sky
   page's dome is a full sky map for everyone.  If you had downloaded
   hip_main.dat into WeeWX's user directory per the old instructions,
@@ -992,8 +971,7 @@ weewx-skyfield change history
   current-Skyfield-release mentions move from 1.54 to 1.55, which the
   full test suite runs green against.
 
-1.19 2026/08/03
----------------
+## 1.19 2026/08/03
 - The Sky page's dome draws the constellations: the 88 IAU
   constellations' stick figures, distilled from the Stellarium
   project's "modern" sky culture (data CC BY-SA 4.0), each
@@ -1016,11 +994,10 @@ weewx-skyfield change history
   constellation_lines is off, matching the footer's rule of naming
   only what actually computed the page.
 
-1.18 2026/08/03
----------------
+## 1.18 2026/08/03
 - The Sky page's dome becomes a full sky map when the full Hipparcos
   catalog is installed: with hip_main.dat in WeeWX's user directory
-  (the same install that already enables $almanac.hip_<number> tags),
+  (the same install that already enables `$almanac.hip_<number>` tags),
   the dome plots EVERY catalog star down to its magnitude limit --
   automatically, no options needed -- instead of drawing only from the
   ~400 named stars.  Labels stay on named stars; an unnamed star's
@@ -1047,8 +1024,7 @@ weewx-skyfield change history
   the rare benign RuntimeWarning from Skyfield's almanac.py line 339
   (skyfield issue #1114).
 
-1.17 2026/08/02
----------------
+## 1.17 2026/08/02
 - A complete Danish translation ships with the skin, contributed by
   native speaker Gert Andersen: lang/da.conf covers
   the page prose, every panel string, the body names and all 88
@@ -1071,23 +1047,22 @@ weewx-skyfield change history
   proposed one-line fix upstream; this extension already discards the
   affected NaN event, so reports render complete.
 
-1.16 2026/07/31
----------------
-- ACTION REQUIRED only if a template read $almanac.<body>.ha or .hlon
+## 1.16 2026/07/31
+- ACTION REQUIRED only if a template read `$almanac.<body>.ha` or `.hlon`
   through the PyEphem fallback: both are now computed natively and
   return decimal degrees, like az/alt/hlong -- PyEphem returned radians
   (ha usually wrapped to 0..2*pi).  Drop any math.degrees() conversion.
 - A concerted effort to compute everything natively in Skyfield: after
   1.16, everything astronomical the built-in PyEphem almanac ever
   answered is computed natively.  Added:
-    - $almanac.<body>.ha: the local apparent hour angle, stars included
+    - `$almanac.<body>.ha`: the local apparent hour angle, stars included
       ($almanac.rigel.ha).  A plain float in signed decimal degrees --
       0 at transit, negative east of the meridian, the standard
       convention.
-    - $almanac.<body>.hour_angle: its unit-aware sibling, a ValueHelper
+    - `$almanac.<body>.hour_angle`: its unit-aware sibling, a ValueHelper
       honoring the report's unit settings and formatting, beside
       azimuth/altitude/hlongitude.
-    - $almanac.<body>.hlon: PyEphem's own spelling of hlong, decimal
+    - `$almanac.<body>.hlon`: PyEphem's own spelling of hlong, decimal
       degrees, the XEphem sun-reports-Earth convention included.
     - $almanac.moon.subsolar_lat: the selenographic latitude of the
       subsolar point, the natural partner of colong, from the same
@@ -1113,8 +1088,7 @@ weewx-skyfield change history
   report.  Tests keep it complete the same way they keep the German,
   French and Dutch.
 
-1.15 2026/07/30
----------------
+## 1.15 2026/07/30
 - A complete Dutch translation ships with the skin (Beta, awaiting
   native-speaker review -- corrections welcome): lang/nl.conf covers the
   page prose, every panel string, the body names and all 88
@@ -1133,7 +1107,7 @@ weewx-skyfield change history
   numeric scale), so existing templates -- including the
   math.degrees($...) idiom -- keep working.  Asked for by a user, for
   the parallactic angle.
-- Under the hood, $almanac.<body>.parallactic_angle is no longer a bound
+- Under the hood, `$almanac.<body>.parallactic_angle` is no longer a bound
   method but the value itself, made callable so the PyEphem-style
   explicit call $almanac.venus.parallactic_angle() keeps working.  The
   parens-free form now also resolves outside Cheetah: a loopdata almanac
@@ -1157,8 +1131,7 @@ weewx-skyfield change history
   $almanac.earth.hlongitude and found nothing pointing them to the
   right tag.)
 
-1.14 2026/07/29
----------------
+## 1.14 2026/07/29
 - FIX: on stations whose reports set a [Units] [[Groups]] preference for
   durations or times (e.g. a station-wide group_deltatime = hour, a
   customization some popular skins suggest), every duration on the Sky
@@ -1188,10 +1161,9 @@ weewx-skyfield change history
   on such systems (reported in the field).  The moon's own regression
   value stays pinned independently of PyEphem.
 
-1.13 2026/07/28
----------------
+## 1.13 2026/07/28
 - The constellation a body stands in is now translatable.
-  $almanac.<body>.constellation still renders the Latin name -- the value
+  `$almanac.<body>.constellation` still renders the Latin name -- the value
   is the same string it has always been, so templates that compare it and
   loopdata fields that publish it are untouched -- but it now carries the
   other views of the same answer as attributes: .abbr the IAU
@@ -1202,22 +1174,21 @@ weewx-skyfield change history
   every body and named star, follows each report's own language, needs no
   PyEphem, and the attribute chains work as loopdata fields
   (almanac.mars.constellation.label renders in the language of loopdata's
-  target report).  $almanac.<body>.constellation_abbr remains as a legacy
+  target report).  `$almanac.<body>.constellation_abbr` remains as a legacy
   alias for .constellation.abbr.  The Sky page's planet chips ("in Leo")
   now render the .label, and the German lang file carries all 88
   constellations (Beta with the rest of de.conf; alternatives a reviewer
   may weigh are noted in the file); en.conf ships the Latin set as the
   key reference for translators.
 
-1.12 2026/07/27
----------------
+## 1.12 2026/07/27
 - FIX: on stations running a non-English OS locale, the analemma panel's
   month labels (Jan, Mar, Jun, Sep, Nov) silently vanished -- the months
   to label were picked by comparing strftime('%b') output against the
   English abbreviations.  Months are now picked by number, and the
   labels render in the station's own locale, as the panel's dates
   always have.
-- NEW tag $almanac.<body>.label: the body's display name, translated by
+- NEW tag `$almanac.<body>.label`: the body's display name, translated by
   the skin.  Add the tag name to the skin's [Almanac] section (the same
   section that holds moon_phases) in a lang file or skin.conf -- for
   example "moon = Mond" -- and $almanac.moon.label renders Mond;
@@ -1237,7 +1208,7 @@ weewx-skyfield change history
   no invented keys.  The skin ships lang/en.conf, the reference
   dictionary: a test now fails if a rendered string is missing from it,
   or if it carries a string nothing renders, so the dictionary tracks
-  the page exactly.  Set the language per report with lang = <code> in
+  the page exactly.  Set the language per report with `lang = <code>` in
   weewx.conf ([StdReport] [[SkyfieldReport]]); month and date names
   already follow the station's OS locale.  Skins embedding the panels
   get all of this through their own report's lang/[Texts] sections.
@@ -1250,8 +1221,7 @@ weewx-skyfield change history
   welcome, as are further languages; a lang file is a self-contained,
   no-code contribution.
 
-1.11 2026/07/27
----------------
+## 1.11 2026/07/27
 - The Sun's Path panel now marks times on the moon's dashed curve:
   moonrise and moonset get a tick and the time at the horizon crossings,
   the transit gets a tick and time at the apex, and the curve's two ends
@@ -1274,18 +1244,17 @@ weewx-skyfield change history
   that day.  The 00/24 endpoint dots now make the break read as the day
   boundary it is.  (README and manual updated to match.)
 
-1.10 2026/07/25
----------------
+## 1.10 2026/07/25
 - FIX: on Skyfield 1.53 (the version Debian trixie packages) the almanac
   failed to start: "init: Could not find earth in ephermis file ...:
   'InMemorySpiceKernel' object has no attribute 'codes'.  The Skyfield
   almanac will not run."  Reports then fell through to the built-in
   PyEphem/weeutil almanac -- planets right, stars and Proxima gone, easy
   to misread as a star-catalog problem.  The in-memory ephemeris kernel
-  (1.6, the SIGBUS guard) reproduced SpiceKernel.__init__'s assignments,
-  and that set changes between Skyfield releases: 1.53's __init__ also
-  sets codes and _vector_functions, 1.54's sets neither.  The kernel now
-  reuses SpiceKernel.__init__ verbatim, swapping the SPK factory it
+  (1.6, the SIGBUS guard) reproduced `SpiceKernel.__init__`'s assignments,
+  and that set changes between Skyfield releases: 1.53's `__init__` also
+  sets `codes` and `_vector_functions`, 1.54's sets neither.  The kernel now
+  reuses `SpiceKernel.__init__` verbatim, swapping the SPK factory it
   consults for one that serves the already-read bytes, so it tracks any
   Skyfield release's initialization exactly (verified against 1.53 and
   1.54).  Skyfield 1.47 remains the minimum.
@@ -1306,27 +1275,27 @@ weewx-skyfield change history
   again -- both had been left at 1.9 through the 1.9.1 release (install.py
   alone was bumped; it is one version scheme, not three).  A test now pins
   the three sites in lockstep.
-1.9.1 2026/07/23
-----------------
-- Sample skin: the Sky page's card titles (<p class="eyebrow">) are now
-  real <h2> headings, satisfying the current Nu Html Checker's rule that
-  every <section> carry a heading (h1 -> h2 cards, no level skips).  The
+
+## 1.9.1 2026/07/23
+- Sample skin: the Sky page's card titles (`<p class="eyebrow">`) are now
+  real `<h2>` headings, satisfying the current Nu Html Checker's rule that
+  every `<section>` carry a heading (h1 -> h2 cards, no level skips).  The
   .eyebrow rule gains font-weight:400 so the headings keep the exact
   non-bold look; no visual change.
 
-1.9 2026/07/18
---------------
-- New eclipse tags, with no PyEphem counterpart: next_/previous_
-  lunar_eclipse and next_/previous_solar_eclipse give the time of maximum
+## 1.9 2026/07/18
+- New eclipse tags, with no PyEphem counterpart:
+  `next_/previous_lunar_eclipse` and `next_/previous_solar_eclipse`
+  give the time of maximum
   of the nearest eclipse VISIBLE from the station (the eclipsed body above
-  the horizon at maximum), each with a _type companion --
+  the horizon at maximum), each with a `_type` companion --
   penumbral/partial/total for lunar; for solar, the type as seen from the
   station (partial/annular/total), so inside the penumbra of a total
   eclipse the reported -- and observed -- type is partial.  Lunar
   eclipses come from Skyfield's eclipselib; solar eclipses are found
   natively, testing each new moon for a topocentric sun/moon disc
   overlap at the station.  The combined next_eclipse/previous_eclipse
-  (with _kind and _type companions) picks the sooner (later) of the two
+  (with `_kind` and `_type` companions) picks the sooner (later) of the two
   kinds, so skins need no selection logic of their own.
 - Every body, stars included, reports its constellation:
   $almanac.saturn.constellation ("Pisces") and .constellation_abbr
@@ -1343,11 +1312,10 @@ weewx-skyfield change history
   double the size of the release zip and the installed extension (new
   section, "Why the DE421 ephemeris (and not DE440)?").
 
-1.8 2026/07/12
---------------
+## 1.8 2026/07/12
 - weewx could fail to shut down if the SIGTERM landed during the Skyfield
   almanac's startup ephemeris/star-catalog load: weewxd stops by raising
-  Terminate inside whatever the main thread is running, and Sky.__init__'s
+  Terminate inside whatever the main thread is running, and `Sky.__init__`'s
   log-and-continue handlers swallowed it.  They now hand Terminate back.
 - The Sky page's single-column layout (below 1160 px, e.g. phones and most
   iPads) no longer shrinks every section to its content width: the sky
@@ -1355,8 +1323,7 @@ weewx-skyfield change history
   rule's align-items:start carried over into the flex-column fallback;
   the fallback now sets align-items:stretch.)
 
-1.7 2026/07/11
---------------
+## 1.7 2026/07/11
 - Three new panels on The Sky page, each embeddable in your own skin like
   the rest (README: "Using the Sky panels in your own skin"):
   * The Solar Year (daylength_svg) -- sunrise, sunset and solar noon for
@@ -1382,8 +1349,7 @@ weewx-skyfield change history
   repository root into screenshots/, and the Sky page's computation-cost
   note now reflects the result cache.
 
-1.6 2026/07/08
---------------
+## 1.6 2026/07/08
 - The engine now reads the DE421 ephemeris fully into memory instead of
   letting jplephem memory-map the file.  Rewriting the .bsp in place under
   a running weewxd -- exactly what "weectl extension install" over a live
@@ -1398,8 +1364,7 @@ weewx-skyfield change history
   longer calls itself celestial_stars.dat (a leftover from the celestial
   3.x extraction).
 
-1.5 Release 2026/07/08
-----------------------
+## 1.5 Release 2026/07/08
 - Traditional astronomy colors on both chart plates.  The Sky page charts
   (and any skin embedding them) now draw the bodies the way star atlases
   do: yellow sun, silver moon, gray Mercury, pearly Venus, blue Earth.
@@ -1418,12 +1383,11 @@ weewx-skyfield change history
   pass palette='classic-night' or palette='classic-light' -- the pre-1.5
   palettes, preserved verbatim.
 
-1.4 Release 2026/07/08
-----------------------
+## 1.4 Release 2026/07/08
 - Result cache: expensive almanac computations are now cached at the
   computation layer, transparently (no configuration, no new tags).
   Day-window searches -- rise/set/transit, the effective-horizon body
-  radius, and the next_*/previous_* events -- are reused across report
+  radius, and the `next_*`/`previous_*` events -- are reused across report
   cycles (a day's moonrise is computed once, not once per mention per
   page per cycle; a "next full moon" found once is served until it
   happens).  Instantaneous positions (alt/az, ra/dec, magnitudes, moon
@@ -1456,8 +1420,7 @@ weewx-skyfield change history
   errors are unaffected: an unknown palette name still raises the error
   listing the valid names.
 
-1.3 Release 2026/07/06
-----------------------
+## 1.3 Release 2026/07/06
 - Harden rise/set/transit event conversion against a rare skyfield
   numerical edge: find_risings/find_settings can emit a wildly wrong event
   time (near Julian day zero -- "Python's datetime does not support
@@ -1471,8 +1434,7 @@ weewx-skyfield change history
   extension version (it had been left at 1.0 through 1.1 and 1.2; the skin
   files themselves were unchanged in those releases).
 
-1.2 Release 2026/07/06
-----------------------
+## 1.2 Release 2026/07/06
 - Chart label placement fixes, prompted by the paloaltoweather.com celestial
   pages.  One backward-compatible API addition (dome_svg's label_scale,
   below); everything else is output markup only:
@@ -1498,8 +1460,7 @@ weewx-skyfield change history
     Planets bunched along the ecliptic no longer print over each other,
     and labels near the rim flip inward instead of clipping.
 
-1.1 Release 2026/07/06
-----------------------
+## 1.1 Release 2026/07/06
 - Every $sky_page render method (moon_svg, dome_svg, ribbons_svg,
   orrery_svg, analemma_svg, chips_html, table_html, countdown_html,
   header_sub) takes an optional palette argument selecting the colors
@@ -1511,8 +1472,7 @@ weewx-skyfield change history
   consuming skin's CSS).  An unknown palette name raises an error
   listing the valid names.
 
-1.0 Release 2026/07/05
-----------------------
+## 1.0 Release 2026/07/05
 Initial release.  The almanac engine is extracted from weewx-celestial 3.0
 (which embeds the same engine alongside its loop-packet fields); this
 extension carries the report almanac alone.
@@ -1539,7 +1499,7 @@ extension carries the report almanac alone.
   2053); without PyEphem, all tags of the standard skins (and much more)
   work with Skyfield alone.
 - The Sky page: a bundled one-page showcase skin (Skyfield), installed
-  automatically and generated at <HTML_ROOT>/skyfield/index.html each
+  automatically and generated at `<HTML_ROOT>/skyfield/index.html` each
   report cycle.  A sky dome of the sun, moon (at true phase), planets and bright
   IAU-named stars above the station's horizon; rise/set ribbons over USNO
   twilight bands; an orrery of heliocentric longitudes; a weekly analemma;
@@ -1577,7 +1537,7 @@ extension carries the report almanac alone.
   ($almanac.separation($almanac.mars, $almanac.venus)), and calls made
   with PyEphem Body arguments are passed through to PyEphem when
   installed.
-- The bundled files are prefixed wxskyfield_ (wxskyfield_de421.bsp,
+- The bundled files are prefixed `wxskyfield_` (wxskyfield_de421.bsp,
   wxskyfield_stars.dat) so that no other extension can claim them (and
   remove them on its uninstall).
 - A malformed record in the star catalog disables only that star, not the

@@ -166,7 +166,7 @@ satellite times that now print with their date (2.5), and what 2.4 and 2.5 chang
 that embed the panels — and all of them are on the
 [Upgrading page](https://chaunceygardiner.github.io/weewx-skyfield/upgrading.html).  The
 full history is in
-[changes.txt](https://github.com/chaunceygardiner/weewx-skyfield/blob/main/changes.txt).
+[changes.md](https://github.com/chaunceygardiner/weewx-skyfield/blob/main/changes.md).
 
 ## Network access, and how to turn it off
 
