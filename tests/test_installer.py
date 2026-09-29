@@ -198,7 +198,7 @@ class TestInstallerConfig:
         to the fallback turns the test green while silently changing what
         new stations get.  Moving the fallback is usually what preserves
         behavior; moving the assignment is a deliberate change of default
-        and belongs in changes.txt.  Existing stations are unaffected
+        and belongs in changes.md.  Existing stations are unaffected
         either way -- their weewx.conf already carries whatever the
         installer wrote, and an upgrade never rewrites it.
 

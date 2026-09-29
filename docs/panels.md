@@ -41,7 +41,7 @@ not in English:
    added `moonlab`, the sun-path moon-time labels; 2.0 added `satlab`, the satellite name
    label, and the pass chart's `passhead`/`passname`/`passwhen` head-line rules), and text
    with no rule renders at the
-   16px SVG default in the wrong color — changes.txt calls out new classes.
+   16px SVG default in the wrong color — changes.md calls out new classes.
    2.4 added two: `bandlab`, for the labels that sit on the twilight bands rather than on
    the panel, and a `.dot` rule that paints the chip and table swatches from the custom
    property the markup now carries — without that one the swatches have no color at all.
