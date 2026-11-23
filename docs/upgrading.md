@@ -2,7 +2,7 @@
 title: Upgrading
 layout: default
 nav_order: 4
-description: What changed for existing weewx-skyfield users — removed options, the one tag whose units changed, satellite times that now carry their date, markup changes for skins that embed the panels, the download switches, and the companion-extension version floors.
+description: What changed for existing weewx-skyfield users — what a visible satellite pass means, satellites needing Skyfield 1.49, satellite elements as OMM, removed options, the one tag whose units changed, satellite times that now carry their date, markup changes for skins that embed the panels, the download switches, and the companion-extension version floors.
 ---
 
 # Upgrading
@@ -79,6 +79,45 @@ map.  To restore the sparse pre-2.0 look:
 
 ## Coming from 2.x
 
+### If you show visible satellite passes (2.12)
+
+**A visible pass is now one you can actually see.**  `next_visible_pass` and `.visible` used
+to accept a pass lit against a dark sky at its rise, culmination or set that peaked at least
+10° up, so passes lit only near the horizon, with their high point in Earth's shadow, were
+listed: Terra from Palo Alto, "peaks 90°", could be seen for 40 seconds and never above 2.4°.
+Now a pass is visible only with a *visible window*: a minute or more in which the satellite
+is sunlit, the sun is at least 6° below the horizon and the satellite is at least 10° up, all
+at once.  Fewer passes qualify, and you can see every one that does.  Nothing to configure.
+
+The window has its own attributes: `visible_start`, `visible_peak` and `visible_end`, each
+with `_altitude` and `_azimuth`, and `visible_duration` (see [pass
+attributes](tag-index.md#pass-attributes)).  The existing attributes still describe the whole
+pass, horizon to horizon, so a template that says when the satellite "appears" and how high
+it "peaks" should use the `visible_*` ones.  `next_visible_pass` now moves on to the next
+visible pass when the window closes, often minutes before the satellite sets.
+
+On a live page, loopdata keeps a group of `next_visible_pass` fields until the latest time
+among them has passed.  A group that includes `.set` keeps showing a pass until it sets, after
+its window has closed, and one with `.culmination` until the culmination if that comes after
+the window; leave those out to move on with the window.
+
+### If you use satellites on Skyfield 1.47 or 1.48 (2.10)
+
+**Satellites now need Skyfield 1.49 or later.**  Their elements arrive in the OMM format
+(below), which earlier Skyfield cannot read.  On 1.47 or 1.48 satellites stop working after
+this upgrade, though it can take up to 7 days for them to stop; everything else works as
+before.  Upgrade Skyfield — see [Upgrading Skyfield](installation.md#upgrading-skyfield).
+
+### Satellite elements are OMM now, not TLEs (2.10)
+
+Nothing to do, but worth knowing.  A TLE has room for only five digits of catalog number, and
+the catalog passed 99999 in July 2026, so the satellite elements are fetched in the OMM format,
+as CSV, and cached as `wxskyfield_sat_<norad>.csv`.  The upgrade adds no request to
+CelesTrak: each satellite's old `.tle` file serves until its elements are next due, when the
+fetch writes the `.csv` and deletes the `.tle`.  If you run with `satellite_downloads = false`
+and supply the files yourself, your `.tle` files keep working; a satellite numbered past 99999
+needs a `.csv` (or an Alpha-5 TLE).  See [Satellites](installation.md#satellites).
+
 ### If you print satellite times, one thing needs your attention
 
 **Satellite times carry their date now (2.5).**  A pass's `rise`, `culmination` and `set` — on
@@ -92,11 +131,26 @@ moon-phase finders, meteor-shower peaks and a comet's perihelion.  Values are un
 tag read through `.raw` is untouched.  See [How far away a time can
 be](values-and-units.md#how-far-away-a-time-can-be).
 
-### If you embed the panels, seven things need your attention
+### If you embed the panels, nine things need your attention
 
-**Nothing you draw today has moved (2.7).**  Every chart method now takes `narrow`, and the
+**The pass chart draws the visible window (2.12).**  Inside `<g class="dome-track">` the dashed
+path is still the whole pass; a second, solid path after it is the visible window, and the
+arc's `<title>` is on that one.  The two clock labels sit at the window's ends instead of on
+the rim, and the chart's moment is the window's highest point rather than the culmination,
+so the featured satellite's dot is drawn sunlit, `data-sunlit="1"`.  `data-rise` and `data-set` are
+unchanged: the whole pass's rise and set.
+
+**Names on the charts can sit somewhere new (2.12).**  On the sky dome and the pass chart a
+name sits on its mark's right or, when that is taken, its left (`text-anchor="end"`), or a
+row below or above it, and one too long for either side is centered
+(`text-anchor="middle"`).  The 30° and 60° figures move to another place on their ring when
+a mark sits on theirs, and the orrery's 0° mark can sit below its line.  `data-body` and the
+class names are unchanged, so a script that moves a name with its mark still works; a test
+that asserts where a label sits, or expects `text-anchor="start"`, needs loosening.
+
+**In 2.7, nothing you drew moved.**  Every chart method now takes `narrow`, and the
 frame it does *not* take — the wide one, the default — is byte for byte what 2.6.2 drew, apart
-from the corrected ring numbers described under *What's fixed* below.  If
+from the corrected ring numbers (see 2.7 in the release table below).  If
 you want the second drawing, ask for it: `narrow=True` gives the same data laid out for a
 phone, at 360 units across with its type set to read in a hand.  It is a second drawing, not
 a scaled one, so a page that serves both emits both and lets a media query choose; the
@@ -159,6 +213,13 @@ it.  If you have never passed a `palette` argument, there is nothing to do.
 
 | Release | Worth knowing |
 |---|---|
+| **2.12** | A visible satellite pass is one you can see: a minute or more sunlit, with the sun below −6° and the satellite at least 10° up, all at once, so fewer passes qualify (see [If you show visible satellite passes](#if-you-show-visible-satellite-passes-212) above).  Every pass gains ten `visible_*` attributes describing that window, and the pass chart draws it.  Names on the orrery, the sky dome and the pass chart are placed clear of the marks, comet tails and other names, and nearer their own body than any other, wherever there is room.  Nothing to configure. |
+| **2.11** | A partial CometEls.txt from the Minor Planet Center, which it serves while rebuilding the file, is no longer saved over a good cached copy: an answer with fewer than 95% as many comets as the cached file, or lacking a configured comet the cached file has, is refused and asked for again three hours later, the cached file serving on; after seven days without a saved answer the next one is saved whatever it is.  The installer no longer fetches satellite or comet elements; weewxd does so within seconds of starting.  Nothing to configure. |
+| **2.10** | Satellite elements are fetched as OMM (CSV) rather than TLEs, so satellites numbered past 99999 work, up to 339999, the highest SGP4 takes.  Files you supply may be either.  Satellites need Skyfield 1.49 or later (see above). |
+| **2.9** | The satellite and comet element fetches stop at the first answer that is not a good one, as [CelesTrak's usage policy](https://celestrak.org/usage-policy.php) requires: any failure ends the round and every satellite waits the three-hour cadence, with the server's own words in the log.  A 404 saying "No GP data found" sets that one satellite aside until weewxd restarts.  Redirects are never followed.  The installer follows the same rule.  Nothing to configure. |
+| **2.8.1** | weewxd always stops when asked: a shutdown landing inside a satellite or comet refresh could be caught as a failed fetch, leaving weewxd running until systemd killed it.  Nothing to configure. |
+| **2.8** | A 403, 404 or 429 from CelesTrak or the Minor Planet Center gets no quick retries.  On the dark Sky page the lines between rows and sections can be seen; a skin that copies `sky.css` picks this up as two new tokens, `--divider` and `--page-divider`. |
+| **2.7.1** | The Next Visible Pass chart sits directly below the sky dome, drawn at the dome's size, where its labels were 5.8 pixels in the side column. |
 | **2.7** | Every chart draws in a second frame on request — `narrow=True` — laid out for a phone rather than scaled down for one: 360 units across, labels that read at 11 px or better on a 320 px screen, and detail thinned rather than shrunk where it will not fit.  The bundled Sky page now serves both and picks by viewport width.  The wide frame is unchanged, byte for byte, apart from the corrected ring numbers, so nothing else you draw today moves.  A narrow sky chart declares its own center and radius for live pages that reposition marks.  **Fixed:** the dome's and pass chart's altitude ring numbers named each other's rings from 1.0 until now — the label reading 30° sat on the 60° ring. |
 | **2.6.2** | A deviation from WeeWX's built-in almanac, which is incorrect here: `visible_change()` with `use_center=1` measures both days to the body's center, where WeeWX measures the earlier day to the upper limb and reads about 160 seconds too negative for the sun.  Earlier releases gave WeeWX's answer.  See [Accuracy and conventions](accuracy.md#differences-from-pyephem).  Nothing to configure. |
 | **2.6.1** | The English Sky page prints clock times 12-hour ("8:45 PM"), dates with their comma ("Aug 17, 2027") and durations spaced ("14 h 6 m"); the other bundled languages keep 24-hour times.  A skin that overrides one of the date, clock or duration [Texts] keys should take the renamed key (see changes.md). |

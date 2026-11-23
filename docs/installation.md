@@ -14,20 +14,20 @@ description: Installation, configuration and Skyfield-upgrade instructions for t
 ---
 
 weewx-skyfield requires Python 3.9 or later, WeeWX 5.2 or later, and the
-[Skyfield](https://rhodesmill.org/skyfield/) (1.47 or later) and NumPy libraries.  PyEphem is
+[Skyfield](https://rhodesmill.org/skyfield/) (1.47 or later; 1.49 for satellites) and NumPy libraries.  PyEphem is
 **not** required.  Translated body, constellation and meteor shower names need WeeWX 5.3 or
 later — see [Translations](i18n.md#how-it-works).
 
 ## Installing the extension
 
-1. Install the prerequisite Skyfield package (1.47 or later).
+1. Install the prerequisite Skyfield package (1.49 or later).
 
    For a pip/venv WeeWX install, activate the virtual environment (actual syntax varies by
    type of WeeWX install) and install with pip:
 
    ```
    source /home/weewx/weewx-venv/bin/activate
-   pip install 'skyfield>=1.47'
+   pip install 'skyfield>=1.49'
    ```
 
    For a Debian package install:
@@ -37,8 +37,9 @@ later — see [Translations](i18n.md#how-it-works).
    ```
 
    `apt show python3-skyfield` reports the version; Debian 12 "bookworm" ships 1.45, which is
-   too old — use pip in that case.  On an older Skyfield, the extension logs an error and
-   leaves the built-in almanac in place.
+   too old — use pip in that case.  On an older Skyfield the install stops and says why; if
+   Skyfield is downgraded afterwards, the extension logs an error and leaves the built-in
+   almanac in place.
 
 2. Download the latest release, `weewx-skyfield.zip`, from the
    [weewx-skyfield GitHub repository](https://github.com/chaunceygardiner/weewx-skyfield).
@@ -68,15 +69,11 @@ later — see [Translations](i18n.md#how-it-works).
    owns the files.  If you installed WeeWX in this same login session, log
    out and back in first so the group membership takes effect.
 
-   The install pauses here to fetch the first satellite and comet orbital elements, so the
-   tags work from the first report cycle rather than the next refresh.  It says what it is
-   downloading before each one — the comet file is the slow one — and elements the station
-   already has, still current, are not fetched again, so a reinstall or an upgrade over a
-   running station usually goes straight through.  A download that fails is not fatal: on a
-   network or CelesTrak hiccup the message says weewxd will fetch them itself, and it will.
-   A message naming a satellite and its NORAD number is the other case — CelesTrak has no
-   current elements for it, so check that number in `[[Satellites]]`, because retrying will
-   not fix it.
+   The install touches the network not at all.  weewxd fetches the first satellite and comet
+   orbital elements itself within seconds of starting, and keeps them fresh from then on, so
+   the tags work from the first report cycle.  A NORAD number CelesTrak does not carry, or a
+   download that fails, is reported in weewxd's log — see
+   [Element messages](troubleshooting.md#element-messages).
 
 4. Restart WeeWX.
 
@@ -101,8 +98,9 @@ on the restart that follows the install.
 
 ## Upgrading Skyfield
 
-Skyfield 1.47 or later works, but the extension is developed and its test suite run against
-the current Skyfield release — 1.55 as of August 2026 — and upgrading to it is recommended.  To
+Skyfield 1.47 is the minimum.  Satellites need 1.49 or later: their elements arrive in the
+OMM format, which earlier Skyfield cannot read.  The extension is developed and its test suite run against the
+current Skyfield release — 1.55 as of August 2026 — and upgrading to it is recommended.  To
 see what you have:
 
 ```
@@ -117,7 +115,7 @@ pip install --upgrade skyfield
 ```
 
 For a Debian package install, `apt` serves the distribution's version, which lags the Skyfield
-release (Debian 12 ships 1.45, below even the minimum).  Where the packaged version is too
+release (Debian 12 ships 1.45, well below the minimum).  Where the packaged version is too
 old, install with pip as described above instead.
 
 ## Configuration
@@ -135,14 +133,31 @@ all.
 Satellite positions are computed (by Skyfield's SGP4 implementation) from published orbital
 elements, which age quickly — a reboost or maneuver makes week-old elements minutes wrong —
 so, unlike the ephemeris and the star catalog, they cannot ship in a release.  They are
-fetched from [CelesTrak](https://celestrak.org): once at install time — skipped when the
-station already has elements less than three hours old — then by weewxd, which
+fetched from [CelesTrak](https://celestrak.org) by weewxd, which
 checks for missing or stale elements at every startup — a satellite just added to the
 configuration is live seconds after the restart — and refreshes about every three hours
-thereafter, on a worker thread that never blocks reports; on a failed fetch the old file is
-kept and the retry backs off gently.  Each satellite's elements live
-in their own file, `wxskyfield_sat_<norad>.tle`, in a `wxskyfield` directory beside the
-station's SQLite database (under `SQLITE_ROOT`), and survive restarts.  Elements whose epoch
+thereafter, on a worker thread that never blocks reports.  A failed fetch keeps the old file
+and is never retried quickly.  [CelesTrak's usage policy](https://celestrak.org/usage-policy.php)
+asks software to stop querying at any answer but a good one and report it to a person, and
+an address that keeps asking through errors ends up in its firewall, so:
+
+- a **404 saying "No GP data found"** is a catalog number CelesTrak does not carry — a typo,
+  or an object that has decayed.  That satellite is not asked for again until weewxd restarts,
+  an error names the number to check, and the other satellites are still fetched.  Any other
+  404 means an outdated URL, and is treated as below;
+- **anything else** — any other status (a 403 or 429 for an address asking too often, a 5xx
+  for a server under load, a 301 for an outdated URL, which is never followed), an answer that
+  is not elements, or no answer at all — stops the round: no satellite is asked for again
+  until the next one, three hours on, and one error carries the answer's own words.
+
+Restarting weewxd asks again at once.  Each satellite's elements live
+in their own file, `wxskyfield_sat_<norad>.csv`, in a `wxskyfield` directory beside the
+station's SQLite database (under `SQLITE_ROOT`), and survive restarts.  The file is CelesTrak's
+answer exactly as it came: the elements in the OMM format, as CSV — a header line and one row.
+Releases before 2.10 fetched TLEs (two-line element sets) instead, but a TLE has room for only
+five digits of catalog number, and the catalog passed 99999 in July 2026.  After an upgrade
+each satellite's old `.tle` file serves until its elements are next due, when the fetch
+writes the `.csv` and deletes the `.tle`, so the upgrade adds no request to CelesTrak.  Elements whose epoch
 is more than seven days older than the almanac's time are *not used*: every tag for that
 satellite reads "N/A" rather than reporting confidently wrong pass times, a warning is
 logged (once at the crossing, not per tag), and the always-live diagnostic tags
@@ -154,9 +169,13 @@ other — and it has a switch of its own.**  Set `satellite_downloads = false` i
 uncomment it and change the value — and no satellite fetch is ever made; with
 `comet_downloads = false` beside it the extension fetches nothing at all, ever — the behavior
 every release before 2.0 had unconditionally.  In that mode `[[Satellites]]` still works if
-you maintain the element files yourself: an air-gapped station can copy
-`wxskyfield_sat_<norad>.tle` files in by any means it likes (each file is one satellite's
-CelesTrak TLE — the name line and two element lines); the seven-day age
+you maintain the element files yourself: an air-gapped station can copy files in by any means
+it likes, in either form.  `wxskyfield_sat_<norad>.csv` is OMM as CSV — CelesTrak's
+`FORMAT=CSV` answer, or Space-Track's OMM CSV, whose extra columns are ignored.
+`wxskyfield_sat_<norad>.tle` is a TLE — an optional name line and the two element lines, the
+catalog number written plain or, past 99999, in the Alpha-5 form (`E8493` is 148493).  When
+both files are there the one with the later epoch is used, and with downloads off the
+extension never deletes either.  The seven-day age
 cutoff applies all the same, because stale elements cannot predict passes no matter how they
 arrived.  With no `[[Satellites]]` configured, likewise, nothing is ever fetched.  The fetch
 identifies itself as `weewx-skyfield/<version>` with the project URL, and `weectl extension
@@ -164,7 +183,8 @@ uninstall` does not remove the cached element files — delete the `wxskyfield` 
 yourself if you want them gone.
 
 **Choosing satellites.**  Any satellite CelesTrak carries can be added by NORAD number
-([satellite catalog search](https://celestrak.org/satcat/search.php)).  Keep the list
+([satellite catalog search](https://celestrak.org/satcat/search.php)), up to 339999: SGP4,
+which computes the positions, takes no higher number, and one past it is refused at startup.  Keep the list
 short — each entry is a separate fetch every three hours.  One caveat worth knowing: a
 satellite's orbital inclination bounds the latitudes it can appear over.  Hubble
 (`hst = 20580`), inclined 28.5°, never climbs usefully above the horizon for stations
@@ -177,19 +197,31 @@ ISS (51.6°) and Tiangong (41.5°) put on the show for essentially everyone.
 Comet orbital elements are the MPC's published
 [CometEls.txt](https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt) — one ~160 KB
 file carrying every comet with a current orbit, cached as `wxskyfield_comets.txt` in the
-same `wxskyfield` directory as the satellite TLEs.  It follows the satellites' fetch shape
-at a gentler cadence: fetched at install unless the cached file is less than two days old, at
-any weewxd startup that finds it missing or stale, then about every two days, on a worker
-thread that never blocks reports — written atomically, the old file kept on any failure,
-backoff on retry.  Set
-`comet_downloads = false` in the `[Skyfield]` section and the extension fetches nothing,
+same `wxskyfield` directory as the satellite elements.  It follows the satellites' fetch shape
+at a gentler cadence: fetched by weewxd at any startup that finds it missing or stale, then
+about every two days, on a worker thread that never blocks reports, and written atomically,
+the MPC's bytes exactly as sent.
+
+While the MPC rebuilds the file it can serve only part of it — on 2026-10-23, 261 of its 965
+comets for about 40 minutes — so an answer is judged against the cached file before it is
+saved.  It is refused, the cached file kept and serving, when it has fewer than
+95% as many comets as the cached file, or lacks a configured comet the cached file has.  A
+refused answer is asked for again three hours later, until the cached file is three days old;
+after that every two days and three hours.  The MPC also drops comets that have faded from
+observability, so once the cached file is seven days old the next answer is saved whatever
+it is; a configured comet it lacks is then taken as dropped, and its tags read "N/A" with a
+once-per-crossing log warning naming it — see the [comet tags](tags.md#comets).  A failed
+fetch (no answer, or an HTTP error) waits two days and three hours when a cached file is
+serving; with no cached file at all it is retried three hours later, except after a 403 or
+429, which mean the MPC is refusing this station.  Nothing is remembered between fetches: a
+restart changes only when the next ask happens, never what is saved.  To force a fresh copy,
+delete `wxskyfield_comets.txt` and restart weewxd.
+
+Set `comet_downloads = false` in the `[Skyfield]` section and the extension fetches nothing,
 ever: an air-gapped station maintains the one `wxskyfield_comets.txt` file by any means it
 likes (it is the MPC file verbatim).  Unlike satellite elements there is no age cutoff —
 two-body comet elements degrade gracefully over months, not days — and `weectl extension
-uninstall` leaves the cache file, like the satellite TLEs.  The MPC drops comets that have
-faded from observability, so a configured comet can vanish from a fresh download: its tags
-then read "N/A" with a once-per-crossing log warning naming it — see the
-[comet tags](tags.md#comets).
+uninstall` leaves the cache file, like the satellite elements.
 
 ## Serving every Hipparcos star
 

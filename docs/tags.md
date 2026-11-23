@@ -190,24 +190,34 @@ distance units; and `.sunlit` — whether the satellite is in sunlight.  `$alman
 is an alternate spelling for a *listed* satellite, mirroring `hip_<number>`; it never fetches
 an unlisted one.  `.rise`, `.transit` and `.set` are the *next* occurrence from the almanac's
 time — transit meaning culmination — because passes are minutes long and "today's" is rarely
-the interesting one.  Because a pass can be up to a week out, all six satellite times — these
-three and a pass's `.rise`, `.culmination` and `.set` — render with their date (see [how far
-away a time can be](values-and-units.md#how-far-away-a-time-can-be)).  The heart of the
-surface is the pass:
+the interesting one.  Because a pass can be up to a week out, all nine satellite times — these
+three, a pass's `.rise`, `.culmination` and `.set`, and its `.visible_start`, `.visible_peak`
+and `.visible_end` — render with their date (see [how far away a time can
+be](values-and-units.md#how-far-away-a-time-can-be)).  The heart of the surface is the pass:
 
 - `$almanac.iss.next_pass` — the next pass, or the one in progress: once the satellite is
-  up, `next_pass` is the current pass until it sets.  Its attributes: `.rise`,
-  `.culmination` and `.set` (times), `.max_altitude` (an angle ValueHelper),
-  `.rise_azimuth`, `.culmination_azimuth` and `.set_azimuth` (compass ValueHelpers, so
-  `.ordinal_compass` renders "WSW"), `.duration`, and `.visible`.
-- `$almanac.iss.next_visible_pass` — the same attributes, for the next pass *worth
-  watching*: the satellite sunlit while your sky is dark (sun below −6° — the
-  civil-twilight convention Heavens-Above uses) at some moment of the pass, and peaking at
-  least 10° up.
+  up, `next_pass` is the current pass until it sets.  These attributes describe the whole
+  pass, horizon to horizon: `.rise`, `.culmination` and `.set` (times), `.max_altitude` (an
+  angle), `.rise_azimuth`, `.culmination_azimuth` and `.set_azimuth` (compass directions,
+  so `.ordinal_compass` renders "WSW") and `.duration`.  `.visible` says whether you can see
+  any of it.  The part you can see is its *visible window*, with its own attributes:
+  `.visible_start`, `.visible_peak` and `.visible_end` (times), each with `_altitude` and
+  `_azimuth` (`.visible_peak_altitude`, `.visible_end_azimuth`, …), and `.visible_duration`.
+- `$almanac.iss.next_visible_pass` — the same attributes, for the next pass you can see:
+  one whose visible window lasts a minute or more, the satellite sunlit, your sky dark (the
+  sun at least 6° below the horizon, the cut-off Heavens-Above uses) and the satellite at
+  least 10° up, all at once.  The window is often shorter and lower than the pass: a
+  satellite climbing through Earth's shadow comes into view only when it leaves it, perhaps
+  after its highest point, so `.visible_peak_altitude` can be well under `.max_altitude`.
+  On a pass that is not visible, every `visible_*` reads "N/A".  `next_visible_pass` moves
+  on to the next visible pass as soon as the window closes; `next_pass` stays on a pass
+  until the satellite sets.
 
 A pass runs rise → culmination → set across the geometric horizon — no refraction, which is
 irrelevant to satellite watching — and the almanac's existing horizon argument applies:
-`$almanac(horizon=10).iss.next_pass` counts only the portion above 10°.  Passes are searched
+`$almanac(horizon=10).iss.next_pass` counts only the portion above 10°.  The visible window
+lies inside the pass, so with a horizon above 10° it is cut to the part above that horizon,
+and a pass that is visible at the default horizon can lose its window.  Passes are searched
 within the orbital elements' seven-day validity window; when no qualifying pass exists,
 every attribute honestly reads "N/A" — Hubble from northern Europe, for example, never
 rises.  Likewise when the elements themselves are unusable (missing, or their epoch more
@@ -216,7 +226,8 @@ confidently wrong pass times, and the always-live diagnostics `$almanac.iss.elem
 and `$almanac.iss.elements_age` say why.
 
 Deliberately absent: an apparent-magnitude tag (satellite brightness models are hand-wavy;
-`sunlit` and `.max_altitude` are served honestly instead) and pass *lists* — ask if you need
+`sunlit` and the visible window, `.visible_peak_altitude` and its companions, are served
+honestly instead) and pass *lists* — ask if you need
 tonight's passes as a table.
 
 On [live-updating pages](index.md#live-updating-pages), the satellite tags work as loopdata
@@ -253,8 +264,10 @@ surface is a clean per-tag error, the satellite convention.
 Skyfield propagates the elements as unperturbed two-body orbits — where-do-I-look
 accuracy, not ephemeris-grade positions far from the elements' epoch; the routine refresh
 keeps the epoch current.  The MPC drops comets that have faded from observability, so a
-configured comet can vanish from a fresh download: its tags then read "N/A" (a log warning
-names it, once at the crossing), never an error and never a stale number, with
+configured comet can vanish from the file.  An answer lacking it is not saved for a week, in
+case the MPC was only serving part of the file (see [Comets](installation.md#comets)); after
+that its tags read "N/A" (a log warning names it, once at the crossing), never an error and
+never a stale number, with
 `$almanac.halley.elements_epoch` and `.elements_age` always live as diagnostics.  Unlike
 satellite elements there is no age cutoff — two-body comet elements degrade gracefully
 over months, not days.

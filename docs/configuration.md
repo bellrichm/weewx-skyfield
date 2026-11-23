@@ -53,8 +53,8 @@ two are content to edit.
 | Option | Default | Effect |
 |---|---|---|
 | `enable` | `true` | Register the Skyfield almanac.  Set `false` and reports fall back to WeeWX's built-in PyEphem/weeutil almanac — the extension stays installed and does nothing. |
-| `satellite_downloads` | `true` | Fetch satellite orbital elements from CelesTrak: at install (unless the cached elements are still current), at any startup finding them missing or stale, then about every three hours.  See [Satellites](installation.md#satellites). |
-| `comet_downloads` | `true` | Fetch the MPC's CometEls.txt: at install (unless the cached file is still current), at any startup finding it missing or stale, then about every two days.  See [Comets](installation.md#comets). |
+| `satellite_downloads` | `true` | Fetch satellite orbital elements from CelesTrak: at any weewxd startup finding them missing or stale, then about every three hours.  See [Satellites](installation.md#satellites). |
+| `comet_downloads` | `true` | Fetch the MPC's CometEls.txt: at any weewxd startup finding it missing or stale, then about every two days.  An answer with only part of the file is not saved over a cached copy under a week old.  See [Comets](installation.md#comets). |
 | `[[Satellites]]` | ISS, Tiangong | `tag name = NORAD catalog number`, one line each.  This one list drives both the [satellite tags](tag-index.md#satellite-tags) and the fetch list. |
 | `[[Comets]]` | Halley, Hale-Bopp | `tag name = MPC designation`, one line each — `tsuchinshan_atlas = C/2023 A3`. |
 
@@ -201,8 +201,9 @@ can restyle the whole family:
 Individual tags still convert on ask without any of this: `$almanac.moon.distance.km`,
 `$almanac.mars.distance.mile`.
 
-A satellite's `rise`, `transit` and `set`, and a pass's `rise`, `culmination` and `set`, print
-in the `ephem_year` context, with their date, because a pass can be days away.  To show one as
+A satellite's `rise`, `transit` and `set`, and a pass's `rise`, `culmination` and `set` and
+`visible_start`, `visible_peak` and `visible_end`, print in the `ephem_year` context, with
+their date, because a pass can be days away.  To show one as
 a bare clock time, format that tag in place —
 `$almanac.iss.next_visible_pass.rise.format(format_string="%X")` — rather than overriding
 `[[TimeFormats]]` `ephem_year`, which also restyles the equinoxes, the moon-phase finders,

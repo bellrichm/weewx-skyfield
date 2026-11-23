@@ -11,12 +11,12 @@ The manual covers installation, every almanac tag, the Sky page, configuration,
 translations and troubleshooting — with search.
 
 **This extension requires Python 3.9 or later, WeeWX 5.2 or later, and the
-[Skyfield](https://rhodesmill.org/skyfield/) (1.47 or later) and NumPy libraries.  PyEphem is
+[Skyfield](https://rhodesmill.org/skyfield/) (1.47 or later; 1.49 for satellites) and NumPy libraries.  PyEphem is
 NOT required.**
 
-Skyfield 1.47 is the minimum supported version; development and the test suite track the
-current Skyfield release (1.55 as of August 2026), so if you have an earlier version
-installed, upgrading is recommended — see
+Skyfield 1.47 is the minimum.  Satellites need 1.49 or later: their elements arrive in the
+OMM format, which earlier Skyfield cannot read.  Development and the test suite track the current Skyfield
+release (1.55 as of August 2026) — see
 [Upgrading Skyfield](https://chaunceygardiner.github.io/weewx-skyfield/installation.html#upgrading-skyfield).
 
 ## Description
@@ -98,8 +98,8 @@ into a skin of your own.
   translatable through WeeWX's own lang files, with per-string English fallback.  (Body,
   constellation and meteor shower names need WeeWX 5.3 or later; the page itself translates
   on 5.2.)
-  Complete German, French and Danish (all from native speakers) and Dutch, Spanish, Italian,
-  Norwegian and Swedish (Beta) translations ship with the skin.
+  Complete German, French, Danish, Dutch, Spanish, Italian, Norwegian and Swedish
+  translations ship with the skin; the first three are from native speakers.
   → [How to translate](https://chaunceygardiner.github.io/weewx-skyfield/i18n.html)
 
 - **Fast.**  A transparent result cache reuses expensive rise/set searches within and across
@@ -109,11 +109,11 @@ into a skin of your own.
 
 ## Installation
 
-1. Install Skyfield (1.47 or later).  For a pip/venv WeeWX install:
+1. Install Skyfield (1.49 or later).  For a pip/venv WeeWX install:
 
    ```
    source /home/weewx/weewx-venv/bin/activate
-   pip install 'skyfield>=1.47'
+   pip install 'skyfield>=1.49'
    ```
 
 2. Download `weewx-skyfield.zip` from the
@@ -162,8 +162,9 @@ and what to do when
 
 Upgrading from an earlier release?  A handful of things need attention — the removed
 `stars` option, the one tag whose units changed, the `classic-` palettes dropped in 2.3,
-satellite times that now print with their date (2.5), and what 2.4 and 2.5 changed for skins
-that embed the panels — and all of them are on the
+satellite times that now print with their date (2.5), what 2.4, 2.5 and 2.12 changed for
+skins that embed the panels, satellites needing Skyfield 1.49 (2.10), and what a visible
+satellite pass means (2.12) — and all of them are on the
 [Upgrading page](https://chaunceygardiner.github.io/weewx-skyfield/upgrading.html).  The
 full history is in
 [changes.md](https://github.com/chaunceygardiner/weewx-skyfield/blob/main/changes.md).
@@ -173,11 +174,11 @@ full history is in
 Everything this extension needs to compute is bundled — the DE421 ephemeris, the complete
 Hipparcos catalog, the constellation figures.  Two things cannot be, because they go stale:
 
-- **satellite orbital elements**, fetched from [CelesTrak](https://celestrak.org) at install
-  (unless what is cached is still current), at any startup that finds them missing or stale,
-  then about every three hours;
+- **satellite orbital elements**, fetched from [CelesTrak](https://celestrak.org) by weewxd at
+  any startup that finds them missing or stale, then about every three hours;
 - **comet orbital elements**, one Minor Planet Center file, on the same shape at a gentler
-  cadence — about every two days.
+  cadence — about every two days — and not saved over a cached copy under a week old when
+  the MPC answers with only part of the file.
 
 Both are on by default, because satellites and comets are configured out of the box.  Each
 has a switch, and with both off the extension makes no network request, ever — the behavior
@@ -216,10 +217,13 @@ report tags and the live values, so they always agree.
 ![weewx-skyfield's sky dome during a Tiangong zenith pass, animated live on the weewx-celestial page](https://raw.githubusercontent.com/chaunceygardiner/weewx-skyfield/main/screenshots/live_dome_tiangong.gif)
 
 *The animation is the [weewx-celestial](https://github.com/chaunceygardiner/weewx-celestial)
-live page at work, moved by weewx-loopdata fields — weewx-skyfield's own Sky page stays
-static.  The chart itself is this extension's dome, embedded there.  A third of the way
-across, still climbing, the marker inverts to a hollow ring as Tiangong slips into Earth's
-shadow — and it goes on to cross the exact center of the dome dark, no longer shining.*
+live page at work, moved by weewx-loopdata fields — weewx-skyfield's own Sky page stays static.
+The chart itself is this extension's dome, embedded there.  A third of the way across, still
+climbing, the marker inverts to a hollow ring as Tiangong slips into Earth's shadow — and it
+goes on to cross the exact center of the dome dark, no longer shining.  Captured in August
+2026, before 2.12: the rows beside the dome still call this pass visible with a 90° peak, where
+it is now reported only for the stretch you can see, and the 30° and 60° figures sit on each
+other's rings, fixed in 2.7.*
 
 → [Live-updating pages](https://chaunceygardiner.github.io/weewx-skyfield/live-pages.html)
 

@@ -69,9 +69,10 @@ minutes, because this extension follows the USNO's geometric definition.  See
 ### Satellite times now show a date
 
 Intended, as of 2.5.  A pass is searched up to a week ahead, so a bare clock time for a pass
-three days out read as tonight.  The six satellite times — `rise`, `culmination` and `set` on
+three days out read as tonight.  The satellite times — `rise`, `culmination` and `set` on
 `next_pass` and `next_visible_pass`, and the satellite's own `rise`, `transit` and `set` — now
-render in the `ephem_year` context, with their date, rather than `ephem_day`.  For the old look
+render in the `ephem_year` context, with their date, rather than `ephem_day`; so do a pass's
+`visible_start`, `visible_peak` and `visible_end`, added in 2.12.  For the old look
 on one tag, format it in place:
 `$almanac.iss.next_visible_pass.rise.format(format_string="%X")`.  Overriding `ephem_year`
 itself would also restyle the equinoxes, the moon-phase finders, meteor-shower peaks and a
@@ -102,9 +103,18 @@ stations poleward of about ±35°.  The configured defaults — ISS at 51.6° an
 41.5° — put on a show for essentially everyone.  See
 [Choosing satellites](installation.md#satellites).
 
-Remember also that `next_visible_pass` is deliberately strict: sunlit, against a sky with the
-sun below −6°, peaking at least 10° up.  `next_pass` is the unfiltered fact and will often
-have an answer when `next_visible_pass` does not.
+Remember also that `next_visible_pass` is deliberately strict: at least a minute in which
+the satellite is sunlit, the sun is below −6° and the satellite is at least 10° up, all at
+once.  A satellite whose passes are lit only low in the sky can go a whole week without one.  `next_pass` is the unfiltered fact and will
+often have an answer when `next_visible_pass` does not.
+
+### A pass that used to be listed is gone, or the next pass moved on early
+
+Intended, as of 2.12.  A pass counts as visible only if you can see it for a minute or more,
+so passes that were lit only near the horizon, or whose high point is in Earth's shadow, are
+no longer listed.  And `next_visible_pass` moves on to the following visible pass as soon as
+the visible window closes, often minutes before the satellite actually sets.  See
+[If you show visible satellite passes](upgrading.md#if-you-show-visible-satellite-passes-212).
 
 ### A number looks wrong by a factor of 3600 or 57.3
 
@@ -157,17 +167,13 @@ label layout per chart per cycle.
 
 ## Install messages
 
-Printed by `weectl extension install`, not logged.  The install fetches the first satellite
-and comet orbital elements so their tags work from the first report cycle, which is what it
-is doing when it pauses.
+Printed by `weectl extension install`, not logged.  The install fetches nothing: weewxd
+fetches the orbital elements itself when it starts, and reports any problem with them in its
+log — see [Element messages](#element-messages).
 
 | Message | Meaning |
 |---|---|
-| `Fetching satellite orbital elements for … from CelesTrak…` / `Fetching comet orbital elements from the Minor Planet Center…` | Normal, and why the install pauses.  The comet file is the slower one. |
-| `Satellite elements for … are current; not fetching.` / `Comet elements in … are current; not fetching.` | Nothing to do: what is cached is younger than the interval weewxd refreshes on.  Usual on an upgrade. |
-| `CelesTrak has no current elements for X (N) -- check the NORAD number…` | A typo in `[[Satellites]]`, or an object that has decayed.  Retrying cannot fix it: correct or remove the entry.  See [Satellites](installation.md#satellites). |
-| `Could not fetch elements for X now (…); weewxd will fetch them itself.` | A network or CelesTrak problem, and true as stated: weewxd fetches missing elements at startup and about every three hours after. |
-| `Skipping satellite X: '…' is not a NORAD catalog number.` | The value in `[[Satellites]]` is not a number.  weewxd logs its own version of this at startup. |
+| `weewx-skyfield requires Skyfield 1.47 or later, found …` / `… which is not installed.` | The install stops before changing anything.  Upgrade or install Skyfield — see [Upgrading Skyfield](installation.md#upgrading-skyfield) — and run the install again. |
 
 ## Startup messages
 
@@ -176,13 +182,14 @@ is doing when it pauses.
 | `Skyfield almanac registered; reports will use Skyfield…` | Working.  This is the line to look for. |
 | `WxSkyfield status: disabled...enable it in the Skyfield section of weewx.conf.` | `enable = false` in `[Skyfield]`. |
 | `This version of WeeWX (…) does not support almanac extensions` | WeeWX older than 5.2.  The extension declines gracefully and the built-in almanac stays in place. |
-| `weewx-skyfield requires Skyfield 1.47 or later, found …` | Upgrade Skyfield — see [Upgrading Skyfield](installation.md#upgrading-skyfield).  Debian 12 ships 1.45, which is too old. |
+| `weewx-skyfield requires Skyfield 1.47 or later, found …` | Skyfield was downgraded after the install, which checks the same thing.  Upgrade it — see [Upgrading Skyfield](installation.md#upgrading-skyfield).  Debian 12 ships 1.45, which is too old. |
+| `Satellites need Skyfield 1.49 or later, found …` | Skyfield 1.47 or 1.48, which cannot read the OMM format satellite elements are fetched in.  Nothing is fetched, and satellite tags stop working within 7 days.  Upgrade Skyfield. |
 | `Could not load …  The Skyfield almanac will not run.` | The ephemeris file could not be read.  Reinstall the extension. |
 | `Could not build the skyfield timescale…` | Skyfield could not initialize; usually a broken or partial Skyfield install. |
 | `init: Could not load the Hipparcos star catalog: … Star support disabled.` | Everything except star tags keeps working. |
 | `Loaded N stars to magnitude M from the full Hipparcos catalog.` | Normal: the dome's star field. |
 | `Ignoring unrecognized [Skyfield] option: …` | A typo, or a leftover from an older release — the pre-2.0 `stars` option lands here.  See [Configuration](configuration.md#the-skyfield-section). |
-| `Ignoring [Skyfield] [[Satellites]] entry …` | The tag name shadows a planet, star, `hip_` or `sat_` name, or the NORAD number is not a number. |
+| `Ignoring [Skyfield] [[Satellites]] entry …` | The tag name shadows a planet, star, `hip_` or `sat_` name, or the NORAD number is not a number, or is past 339999, the highest SGP4 takes. |
 | `Ignoring [Skyfield] [[Comets]] entry …` | Same, for a comet's name or designation. |
 
 ## Report messages
@@ -204,10 +211,20 @@ again.  Restart WeeWX to see whether a fix took.
 | Message | Meaning |
 |---|---|
 | `Fetched satellite elements for N.` / `Fetched comet elements into …` | A refresh succeeded. |
-| `Could not fetch satellite elements for N (…); keeping the …` | A fetch failed; the previous file is kept and the retry backs off.  Harmless in isolation — a transient CelesTrak timeout recovers on its own. |
+| `Deleted …/wxskyfield_sat_N.tle, superseded by …/wxskyfield_sat_N.csv.` | Once per satellite after upgrading to 2.10: the first fetch in the new format replaced the TLE an older release cached. |
+| `Could not delete …/wxskyfield_sat_N.tle, which the fetched …/wxskyfield_sat_N.csv supersedes: …` | Usually permissions.  Harmless — the fresher CSV is used — but delete the file by hand. |
+| `satellite_elements: could not load …: …` | A cached or supplied element file is not elements for that satellite.  A broken file costs only itself: the satellite's other file, if there is one, still serves. |
+| `Could not fetch satellite elements for N (…).  Asking CelesTrak nothing more until the next round, in 3 hours, for every satellite; …` | A fetch failed, and what came back is quoted: a status with the server's own words, or the failure itself (a timeout, a refused connection, an answer that was not elements).  Every cached file is kept and no satellite is asked for again for three hours, as CelesTrak's usage policy requires.  A 403 or 429 means this address is asking too often — usually several installs behind one address, each asking; let one fetch and copy the files to the rest with `satellite_downloads = false`.  A 5xx means CelesTrak is under load.  A 301 means the URL is outdated: update the extension.  Restarting weewxd asks again at once. |
+| `CelesTrak has no elements for satellite N (HTTP 404 …); check the NORAD number.  Not asking for it again until weewxd restarts; …` | A catalog number CelesTrak does not carry: a typo in `[[Satellites]]`, or an object that has decayed.  The other satellites are still fetched.  Fix the number and restart. |
+| `The MPC's comet file has only A comets against C in the cached file, as when the MPC is partway through rebuilding it.  Keeping the cached file and asking again in …` | The MPC answered with part of its file.  The cached file is kept and every comet keeps working; the MPC is asked again three hours later, or two days and three hours later once the cached file is three days old.  Nothing to do. |
+| `The MPC's comet file lacks …, which the cached file has (A comets against C).  Keeping the cached file and asking again in …` | The same, caught by a comet you configure: the answer lacks one the cached file has.  If the MPC has really dropped it, the answer is saved once the cached file is seven days old.  Nothing to do. |
+| `The MPC's comet file still lacks … after 7 days without a saved answer; saving it.  Their tags read N/A until the MPC's file has them again.` | A week of answers without that comet: the MPC has dropped it.  Its tags read `N/A` until it returns. |
+| `The MPC's comet file has only A comets against C in the cached file, after 7 days without a saved answer; saving it.  …` | A week without a saved answer ended on a partial file, which is now the cached copy; every configured comet is in it.  The next full answer, normally two days on, replaces it. |
+| `Could not fetch the comet elements from the MPC (…).  Asking again in …` | A failure, with what came back quoted.  With a cached file it keeps serving and the next try is two days and three hours later; with none, three hours later — or two days and three hours after a 403 or 429, which mean the MPC is refusing this station. |
+| `Fetched the comet elements from the MPC but could not save them into … (…).  Check that weewxd's user can write there.` | The `wxskyfield` cache directory is not writable by weewxd's user, usually left that way by an install run as another user.  Give it to weewxd's user (`chown -R`) and restart weewxd, which asks again at once.  The satellite fetch fails the same way there, logged as a CelesTrak failure whose words include `Permission denied`. |
 | `Satellite N has no usable elements (missing, unreadable, …)` | Every tag for that satellite now reads `N/A`.  Logged once at the crossing, not per tag. |
 | `Satellite N has usable elements again.` | Recovered. |
-| `Comet X (…) has no elements in the cached CometEls…` | The MPC dropped it, or the cache is missing.  Tags read `N/A`. |
+| `Comet X (…) has no elements in the cached CometEls…` | The MPC dropped it, or the cache is missing.  Tags read `N/A`.  To force a fresh copy of the file, delete `wxskyfield_comets.txt` and restart weewxd. |
 | `Comet X (…) has elements again.` | Recovered. |
 
 ## Known Skyfield issues

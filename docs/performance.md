@@ -98,7 +98,9 @@ The work concentrates in a few panels:
 A skin that passes `label_layers` to `dome_svg` or `pass_chart_html` pays one more label
 layout, collision pass included, per extra layer, per chart, per report cycle, and ships about
 5 KB more text per dome per layer.  The marks are drawn only once, and the bundled Sky page uses
-no layers.
+no layers.  A label layout itself is cheap: since 2.12 each name tries several spots against
+every mark, tail and name already placed, and a whole dome's layout takes about 2 ms on a
+Raspberry Pi 5, against under 1 ms before.
 
 Because the year-scale panels are anchored to fixed instants, the [result
 cache](#the-result-cache) reuses them across cycles: the full price is paid once at startup,
@@ -146,7 +148,8 @@ unit of loss:
 3. **Turn off `constellation_lines`.**  Fewer marks to lay out and fewer label collisions to
    resolve.
 4. **Keep the satellite list short.**  Each configured satellite is a separate fetch every
-   three hours and its own pass search.
+   three hours and its own pass search — a week of passes and their visible windows, a few
+   tenths of a second on a Raspberry Pi, repeated whenever its orbital elements change.
 5. **Turn the page off entirely** with `enable = false` in its stanza.  Every `$almanac` tag
    still works — you lose only the bundled showcase page.
 

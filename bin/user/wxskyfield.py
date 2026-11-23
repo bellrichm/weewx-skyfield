@@ -15,8 +15,10 @@ inserts celestial observations into loop packets); this extension carries
 the almanac alone.
 """
 
+import csv
 import gzip
 import io
+import html
 import logging
 import math
 import os
@@ -24,11 +26,13 @@ import re
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
+import weakref
 
 from datetime import datetime
 from datetime import timezone
-from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple
 
 import jplephem.daf
 import jplephem.spk
@@ -61,7 +65,33 @@ from weewx.units import ValueTuple
 # get a logger object
 log = logging.getLogger(__name__)
 
-WXSKYFIELD_VERSION = '2.7.1'
+WXSKYFIELD_VERSION = '2.12'
+
+# The oldest Skyfield this extension runs on: find_risings and
+# find_settings arrived in 1.47.  install.py keeps its own copy, held
+# equal by tests/test_installer.py.
+SKYFIELD_MIN_VERSION = (1, 47)
+# The oldest Skyfield that reads OMM, which satellites need: below it, on
+# 1.47 and 1.48, only the satellites stop.  install.py keeps a copy too.
+SKYFIELD_OMM_VERSION = (1, 49)
+
+
+def skyfield_reads_omm() -> bool:
+    """Whether this Skyfield can read OMM, the format satellite elements
+    are fetched in: EarthSatellite.from_omm arrived in 1.49.  Asked of
+    the class rather than the version, and nothing more is needed: from
+    1.49 on Skyfield imports the sgp4 library's OMM support when it
+    loads, so a Skyfield that runs at all has it.  On 1.47 and 1.48 only
+    the satellites stop."""
+    return hasattr(skyfield.api.EarthSatellite, 'from_omm')
+
+
+def sat_omm_message() -> str:
+    """Why this Skyfield cannot serve satellites, for the log."""
+    return ('Satellites need Skyfield %d.%d or later, found %d.%d: their elements'
+            ' are fetched in the OMM format, which older Skyfield cannot read'
+            % (SKYFIELD_OMM_VERSION + tuple(skyfield.VERSION[:2])))
+
 
 if sys.version_info[0] < 3 or (sys.version_info[0] == 3 and sys.version_info[1] < 9):
     raise weewx.UnsupportedFeature(
@@ -69,15 +99,24 @@ if sys.version_info[0] < 3 or (sys.version_info[0] == 3 and sys.version_info[1] 
 
 def reraise_if_terminate(e: BaseException) -> None:
     """weewxd stops by raising Terminate from its SIGTERM signal handler --
-    inside whatever the main thread is executing at that instant.  This
-    extension's main-thread exposure is Sky.__init__, which the service runs
-    at engine startup; every broad exception handler there must call this
-    first and hand the exception back, or weewx cannot shut down.  (Almanac
-    tags are evaluated during report generation, on a child thread that
-    never receives signals.)  weewxd runs as __main__, so its Terminate
-    class cannot be imported here and is recognized by name."""
-    if type(e).__name__ == 'Terminate':
-        raise e
+    inside whatever the main thread is executing at that instant -- and
+    Terminate subclasses Exception, so a broad handler on a main-thread
+    path catches the shutdown as its own failure, logs it, and weewxd runs
+    on until systemd kills it.  This extension's main-thread exposure is
+    Sky.__init__, which the service runs at engine startup, and the two
+    element refreshers, which run at STARTUP and at every archive record;
+    every broad exception handler on those paths must call this first,
+    before touching any state of its own, and hand the exception back.
+    (Almanac tags are evaluated during report generation, on a child
+    thread that never receives signals.)  The class is the running
+    weewxd's own, not a name match: weewxd.py runs as a script on these
+    stations, so the class is __main__.Terminate; the console script
+    would import it as weewxd.Terminate; and an `import weewxd` here
+    would mint a third class that is neither."""
+    for name in ('__main__', 'weewxd'):
+        cls = getattr(sys.modules.get(name), 'Terminate', None)
+        if isinstance(cls, type) and issubclass(cls, BaseException) and isinstance(e, cls):
+            raise e
 
 
 # The WeeWX 5.2 requirement is enforced by register_almanac, which declines
@@ -151,17 +190,20 @@ class WxSkyfield(StdService):
             # nothing, and the main thread never touches the network.
             self._sat_thread: Optional[threading.Thread] = None
             self._sat_retry_ts: Dict[int, float] = {}
-            self._sat_retry_delay: Dict[int, float] = {}
-            if satellites and self.sat_downloads:
+            if satellites and self.sat_downloads and not skyfield_reads_omm():
+                # Fetching what cannot be read would only ask CelesTrak
+                # for nothing; said once, here.
+                log.error('%s.  Not fetching them, so satellite tags stop working'
+                          ' within %d days.  Upgrade Skyfield.'
+                          % (sat_omm_message(), SAT_MAX_ELEMENT_AGE_SECS // 86400))
+            elif satellites and self.sat_downloads:
                 self.bind(weewx.STARTUP, self.refresh_satellite_elements)
                 self.bind(weewx.NEW_ARCHIVE_RECORD, self.refresh_satellite_elements)
             # The comet elements get the same treatment, as a parallel
-            # trio rather than a generalization (one file, so the backoff
-            # state is a pair of scalars, and the tested satellite path
-            # stays untouched).
+            # trio rather than a generalization (one file, so the wait is
+            # a single time).
             self._comet_thread: Optional[threading.Thread] = None
             self._comet_retry_ts = 0.0
-            self._comet_retry_delay = float(COMET_RETRY_BASE_SECS)
             if comets and self.comet_downloads:
                 self.bind(weewx.STARTUP, self.refresh_comet_elements)
                 self.bind(weewx.NEW_ARCHIVE_RECORD, self.refresh_comet_elements)
@@ -171,7 +213,8 @@ class WxSkyfield(StdService):
         slow CelesTrak can never delay startup or the archive cycle.
         Bound to STARTUP -- a just-added satellite gets its elements
         right away, not one archive interval in -- and to every
-        NEW_ARCHIVE_RECORD.  Never raises."""
+        NEW_ARCHIVE_RECORD.  Never raises, except to hand weewxd's
+        Terminate back: this runs on the main thread."""
         try:
             if self._sat_thread is not None and self._sat_thread.is_alive():
                 return
@@ -180,62 +223,98 @@ class WxSkyfield(StdService):
                 return
             self._sat_thread = threading.Thread(target=self._fetch_worker,
                                                 args=(due,), daemon=True,
-                                                name='wxskyfield-tle')
+                                                name='wxskyfield-sat')
             self._sat_thread.start()
         except Exception as e:
+            reraise_if_terminate(e)
             log.error('refresh_satellite_elements: could not start the element fetch: %s' % e)
 
     def stale_satellites(self, now: float) -> List[int]:
-        """The NORAD numbers whose cache files are due for a fetch: file
-        mtime older than the refresh cadence, or no file at all (a
-        satellite added to the config later, or an install that was
-        offline) -- maximally stale, fetched at the first archive cycle.
-        A number inside its failure backoff window is skipped.  Checks
+        """The NORAD numbers whose cache files are due for a fetch: the
+        newer element file's mtime older than the refresh cadence, or no
+        file at all (a satellite added to the config later, or an install
+        that was offline) -- maximally stale, fetched at the first archive
+        cycle.  The newer of the CSV and the TLE, so the first round after
+        an upgrade from a TLE release asks for nothing the station fetched
+        within the cadence: each TLE is replaced when it comes due.  A
+        number parked after a failure (WHAT A FETCH DOES WITH EACH
+        ANSWER) is skipped until its time comes.  Checks
         are age-driven, not schedule-driven, so a weewxd started after a
         long stop refreshes immediately."""
         due: List[int] = []
         for norad in sorted(set(self.sky.satellites.values())):
             if now < self._sat_retry_ts.get(norad, 0.0):
                 continue
-            try:
-                mtime = os.stat(self.sky.sat_path(norad)).st_mtime
-            except OSError:
-                mtime = None
+            mtime = max((m for m in self.sky.sat_mtimes(norad) if m is not None),
+                        default=None)
             if mtime is None or now - mtime >= SAT_REFRESH_SECS:
                 due.append(norad)
         return due
 
     def _fetch_worker(self, norads: List[int]) -> None:
-        """Fetch each due element set.  A failure keeps the old file (the
-        fetcher is atomic) and backs off: retry in five minutes, doubling
-        per consecutive failure up to the normal three-hour cadence, so a
-        recovered network refreshes quickly without hammering CelesTrak.
-        In-memory backoff state resetting on restart (to try-now) is
-        correct.  Never raises -- and never touches the engine: weewxd's
-        shutdown does not wait for daemon threads."""
+        """Fetch each due element set, by WHAT A FETCH DOES WITH EACH
+        ANSWER: a failure keeps the old file (the fetcher is atomic); a
+        404 parks that satellite until weewxd restarts and the round goes on;
+        anything else parks every satellite one cadence and the round
+        ends there, with no request for the ones after it.  No quick
+        retries: a failing CelesTrak is asked at most once a cadence.
+        In-memory state resetting on restart (to try-now) is a person
+        acting on the error.  Never raises -- and never touches the
+        engine: weewxd's shutdown does not wait for daemon threads."""
         for norad in norads:
             try:
                 assert self.sky.sat_dir is not None
                 os.makedirs(self.sky.sat_dir, exist_ok=True)
-                fetch_satellite_elements(norad, self.sky.sat_path(norad))
+                fetch_satellite_elements(norad, self.sky.sat_path(norad), self.sky.ts)
                 self._sat_retry_ts.pop(norad, None)
-                self._sat_retry_delay.pop(norad, None)
                 log.info('Fetched satellite elements for %d.' % norad)
+                self._retire_tle(norad)
             except Exception as e:
-                delay = min(self._sat_retry_delay.get(norad, SAT_RETRY_BASE_SECS),
-                            float(SAT_REFRESH_SECS))
-                self._sat_retry_ts[norad] = time.time() + delay
-                self._sat_retry_delay[norad] = delay * 2
-                log.warning('Could not fetch satellite elements for %d (%s);'
-                            ' keeping the cached elements, next try in %d minutes.'
-                            % (norad, e, delay // 60))
+                until = time.time() + SAT_REFRESH_SECS
+                answer = http_answer(e)
+                if answer is not None and not_carried(answer):
+                    # until weewxd restarts: a person fixing the number
+                    self._sat_retry_ts[norad] = float('inf')
+                    on_file = ('keeping the cached elements'
+                               if any(m is not None for m in self.sky.sat_mtimes(norad))
+                               else 'nothing on file for it')
+                    log.error('CelesTrak has no elements for satellite %d (%s);'
+                              ' check the NORAD number.  Not asking for it again'
+                              ' until weewxd restarts; %s.' % (norad, answer.text, on_file))
+                    continue
+                # never shortening a longer wait: a 404's lasts until restart
+                for each in set(self.sky.satellites.values()):
+                    self._sat_retry_ts[each] = max(self._sat_retry_ts.get(each, 0.0), until)
+                log.error('Could not fetch satellite elements for %d (%s).  Asking'
+                          ' CelesTrak nothing more until the next round, in %d hours,'
+                          ' for every satellite; keeping what is on file.'
+                          % (norad, failure_words(e), SAT_REFRESH_SECS // 3600))
+                return
+
+    def _retire_tle(self, norad: int) -> None:
+        """Delete the satellite's TLE file once its CSV has been fetched:
+        on a station with downloads on, a TLE is what a release before
+        2.10 cached, and the fresh CSV supersedes it.  Never raises --
+        the fetch it follows succeeded, and a TLE that will not go only
+        loses to the CSV's later epoch -- so it is logged and left."""
+        try:
+            os.remove(self.sky.sat_tle_path(norad))
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            log.warning('Could not delete %s, which the fetched %s supersedes: %s'
+                        % (self.sky.sat_tle_path(norad), self.sky.sat_path(norad), e))
+        else:
+            log.info('Deleted %s, superseded by %s.'
+                     % (self.sky.sat_tle_path(norad), self.sky.sat_path(norad)))
 
     def refresh_comet_elements(self, event) -> None:
         """Refresh the CometEls cache file when stale, on a worker thread
         so a slow MPC can never delay startup or the archive cycle.
         Bound to STARTUP and NEW_ARCHIVE_RECORD like the satellite
         refresher; the cadence is days, not hours -- two-body comet
-        elements stay serviceable for months.  Never raises."""
+        elements stay serviceable for months.  Never raises, except to
+        hand weewxd's Terminate back: this runs on the main thread."""
         try:
             if self._comet_thread is not None and self._comet_thread.is_alive():
                 return
@@ -246,12 +325,13 @@ class WxSkyfield(StdService):
                                                   name='wxskyfield-comets')
             self._comet_thread.start()
         except Exception as e:
+            reraise_if_terminate(e)
             log.error('refresh_comet_elements: could not start the element fetch: %s' % e)
 
     def comet_stale(self, now: float) -> bool:
         """Whether the CometEls cache file is due for a fetch: mtime older
         than the refresh cadence, or no file at all -- maximally stale.
-        Inside the failure backoff window, never due.  Age-driven, not
+        Parked after a failure, never due until its time.  Age-driven, not
         schedule-driven, like stale_satellites."""
         if now < self._comet_retry_ts:
             return False
@@ -262,24 +342,127 @@ class WxSkyfield(StdService):
         return now - mtime >= COMET_REFRESH_SECS
 
     def _comet_fetch_worker(self) -> None:
-        """Fetch the CometEls file.  A failure keeps the old file (the
-        fetcher is atomic) and backs off: retry in five minutes, doubling
-        per consecutive failure up to the normal cadence.  Never raises,
-        never touches the engine."""
+        """Fetch the CometEls file and judge the answer against the cached
+        file (judge_comet_answer; the rules and waits are written at the
+        COMET_* constants).  Every decision comes from the answer, the
+        cached file, its age and the configured comets; _comet_retry_ts,
+        the only state here, says only when the next ask may happen.
+        Never raises, never touches the engine."""
+        start = time.time()
+        path = self.sky.comet_path()
+        cached: Optional[List[CometRow]] = None
+        age = 0.0
         try:
-            assert self.sky.comet_dir is not None
-            os.makedirs(self.sky.comet_dir, exist_ok=True)
-            fetch_comet_elements(self.sky.comet_path())
+            try:
+                with open(path, 'rb') as f:
+                    data = f.read()
+                mtime = os.stat(path).st_mtime
+            except OSError:
+                pass
+            else:
+                rows, _bad = comet_rows(data)
+                if rows:
+                    cached, age = rows, start - mtime
+            try:
+                answer = download_comet_elements()
+            except Exception as e:
+                self._comet_failed(e, start, cached is not None)
+                return
+            rows, _bad = comet_rows(answer)
+            if not rows:
+                self._comet_failed(ValueError('no comet rows in the downloaded file'),
+                                   start, cached is not None)
+                return
+            verdict = judge_comet_answer(rows, cached, age, self.sky.comets.values())
+            if verdict.outcome == COMET_REFUSE:
+                soon = age < COMET_RETRY_UNTIL_SECS
+                self._comet_retry_ts = start + (COMET_RETRY_SECS if soon else COMET_WAIT_SECS)
+                again = 'in 3 hours' if soon else 'in 2 days and 3 hours'
+                if verdict.rule == 'short':
+                    log.warning("The MPC's comet file has only %d comets against %d in the"
+                                " cached file, as when the MPC is partway through rebuilding"
+                                " it.  Keeping the cached file and asking again %s."
+                                % (verdict.answer_rows, verdict.cached_rows, again))
+                else:
+                    log.warning("The MPC's comet file lacks %s, which the cached file has"
+                                " (%d comets against %d).  Keeping the cached file and"
+                                " asking again %s."
+                                % (', '.join(verdict.lacking), verdict.answer_rows,
+                                   verdict.cached_rows, again))
+                return
+            try:
+                self._save_comets(path, answer)
+            except OSError as e:
+                self._comet_retry_ts = start + COMET_WAIT_SECS
+                log.error('Fetched the comet elements from the MPC but could not save them'
+                          " into %s (%s).  Check that weewxd's user can write there."
+                          '  Trying again in 2 days and 3 hours, or at once when weewxd is'
+                          ' restarted.' % (os.path.dirname(path), e))
+                return
             self._comet_retry_ts = 0.0
-            self._comet_retry_delay = float(COMET_RETRY_BASE_SECS)
-            log.info('Fetched comet elements into %s.' % self.sky.comet_path())
+            log.info('Fetched comet elements into %s.' % path)
+            if verdict.rule == 'keep' and verdict.lacking:
+                log.warning("The MPC's comet file still lacks %s after 7 days without a saved"
+                            " answer; saving it.  Their tags read N/A until the MPC's file"
+                            ' has them again.' % ', '.join(verdict.lacking))
+            elif (verdict.rule == 'keep'
+                  and 100 * verdict.answer_rows < COMET_SHORT_PERCENT * verdict.cached_rows):
+                # A partial becoming the new baseline must not pass in silence.
+                log.warning("The MPC's comet file has only %d comets against %d in the cached"
+                            ' file, after 7 days without a saved answer; saving it.  Later'
+                            ' answers are judged against this smaller file until a fuller'
+                            ' one is saved.' % (verdict.answer_rows, verdict.cached_rows))
         except Exception as e:
-            delay = min(self._comet_retry_delay, float(COMET_REFRESH_SECS))
-            self._comet_retry_ts = time.time() + delay
-            self._comet_retry_delay = delay * 2
-            log.warning('Could not fetch comet elements (%s); keeping the'
-                        ' cached elements, next try in %d minutes.'
-                        % (e, delay // 60))
+            self._comet_failed(e, start, cached is not None)
+
+    def _comet_failed(self, e: BaseException, start: float, have_cache: bool) -> None:
+        """A FAILURE: no answer, an HTTP status, an answer with no valid
+        row, or anything unexpected.  The cached file, if any, stays; the
+        wait depends on whether one is serving and, when none is, on
+        whether the MPC refused us (403, 429)."""
+        answer = http_answer(e)
+        refused = answer is not None and answer.code in (403, 429)
+        if have_cache:
+            wait, words = COMET_WAIT_SECS, 'in 2 days and 3 hours; keeping the cached elements'
+        elif refused:
+            wait, words = COMET_WAIT_SECS, 'in 2 days and 3 hours; no usable cached elements'
+        else:
+            wait, words = COMET_RETRY_SECS, 'in 3 hours; no usable cached elements'
+        self._comet_retry_ts = start + wait
+        log.error('Could not fetch the comet elements from the MPC (%s).  Asking again %s.'
+                  % (failure_words(e), words))
+
+    @staticmethod
+    def _save_comets(path: str, data: bytes) -> None:
+        """Write the MPC's bytes verbatim and atomically, as the satellite
+        fetch does: the directory made if need be, comet temp files older
+        than COMET_TMP_SWEEP_SECS swept, the answer written to a temp file
+        named for this process and thread with a plain open (the file gets
+        the permissions every other file weewxd writes gets; mkstemp's 0600
+        would hide it from another user's weectl report run), then
+        os.replace.  Raises OSError, the temp file removed first."""
+        directory = os.path.dirname(path)
+        os.makedirs(directory, exist_ok=True)
+        cutoff = time.time() - COMET_TMP_SWEEP_SECS
+        for name in os.listdir(directory):
+            if name.startswith(COMET_FILE) and name.endswith('.tmp'):
+                leftover = os.path.join(directory, name)
+                try:
+                    if os.stat(leftover).st_mtime < cutoff:
+                        os.remove(leftover)
+                except OSError:
+                    pass
+        tmp = '%s.%d.%d.tmp' % (path, os.getpid(), threading.get_ident())
+        try:
+            with open(tmp, 'wb') as f:
+                f.write(data)
+            os.replace(tmp, path)
+        except OSError:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
 
 # Named stars available as report almanac tags (e.g., $almanac.rigel.rise)
 # unless disabled (stars = false in [Skyfield]).  Maps the tag name to the
@@ -738,44 +921,72 @@ REPO_URL = 'https://github.com/chaunceygardiner/weewx-skyfield'
 # ── satellites ───────────────────────────────────────────────────────────────
 # [Skyfield] [[Satellites]] maps tag names to NORAD catalog numbers
 # (iss = 25544); that one list drives both the report tags
-# ($almanac.iss.next_pass.rise) and the fetch list.  Orbital elements (TLEs)
-# are fetched per satellite from CelesTrak and cached as plain files,
-# wxskyfield_sat_<norad>.tle, in SAT_DIR_NAME under the station's SQLITE_ROOT
-# -- TLEs are already a file format Skyfield reads directly, staleness is
-# mtime, and `cat` works when debugging.  The service refreshes them on a
+# ($almanac.iss.next_pass.rise) and the fetch list.  Orbital elements are
+# fetched per satellite from CelesTrak as OMM in CSV form (a header line and
+# one row; Skyfield's EarthSatellite.from_omm reads the row) and cached
+# exactly as they arrived, wxskyfield_sat_<norad>.csv, in SAT_DIR_NAME under
+# the station's SQLITE_ROOT -- staleness is mtime, and `cat` works when
+# debugging.  Not TLEs: a TLE's catalog-number field has five digits, and
+# the catalog passed 99999 in July 2026.  The service refreshes them on a
 # worker thread at STARTUP and each NEW_ARCHIVE_RECORD (weewxd's only
 # network access in this extension -- satellite_downloads = false turns it
 # off, leaving the files for the user to maintain).
-CELESTRAK_URL = 'https://celestrak.org/NORAD/elements/gp.php?CATNR=%d&FORMAT=TLE'
+#
+# A satellite's elements may also be a TLE file, wxskyfield_sat_<norad>.tle:
+# what every release before 2.10 fetched, and what a station maintaining
+# its own files may still supply.  When both files are there, the one with
+# the later epoch is used (the CSV on a tie), so neither a leftover TLE nor
+# a stale CSV can shadow fresher elements beside it.  A fetch that writes
+# the CSV deletes the TLE beside it; nothing else ever deletes a TLE, since
+# with downloads off those files are the user's.
+CELESTRAK_URL = 'https://celestrak.org/NORAD/elements/gp.php?CATNR=%d&FORMAT=CSV'
 SAT_DIR_NAME = 'wxskyfield'
-SAT_FILE_FORMAT = 'wxskyfield_sat_%d.tle'
+SAT_FILE_FORMAT = 'wxskyfield_sat_%d.csv'
+SAT_TLE_FILE_FORMAT = 'wxskyfield_sat_%d.tle'
+# The highest catalog number SGP4 can be given: the sgp4 library under
+# Skyfield stores the number in the five-character Alpha-5 form, whose
+# largest value, Z9999, is 339999, and refuses anything above it.  A
+# satellite numbered past it is refused at startup rather than fetched
+# and never usable.
+SAT_MAX_CATALOG_NUMBER = 339999
 # CelesTrak identifies polite clients by software, so abuse reports can
 # reach the author; the repo URL does that.  Deliberately no per-machine
 # identifier: hostnames are often personal.
 SAT_USER_AGENT = 'weewx-skyfield/%s (+%s)' % (WXSKYFIELD_VERSION, REPO_URL)
 # Refresh cadence.  CelesTrak regenerates element sets about every two
 # hours; three is polite, and each install's archive-cycle phase spreads
-# the fleet's fetches.  A failed fetch retries sooner -- the next archive
-# cycle, doubling from five minutes up to this same cadence -- so a
-# recovered network refreshes quickly and CelesTrak is never hammered.
+# the fleet's fetches.  A failed fetch waits this same cadence, never less
+# (see WHAT A FETCH DOES WITH EACH ANSWER, below).
 SAT_REFRESH_SECS = 3 * 3600
-SAT_RETRY_BASE_SECS = 300
 # Elements whose epoch is older than this cannot be trusted for pass
 # times: plain SGP4 drift is only seconds at a week, but a reboost or
 # maneuver accumulates minutes of error per week after it -- missed-pass
-# territory.  Age is measured from the TLE epoch, never the file mtime (a
+# territory.  Age is measured from the elements' epoch, never the file mtime (a
 # "successful" fetch of stale data must not reset the clock).  Past the
 # cutoff every satellite tag reports the unified no-usable-elements state:
 # empty ValueHelpers ("N/A"), None for the plain-value tags.
 SAT_MAX_ELEMENT_AGE_SECS = 7 * 86400
-# A pass is visible when the satellite is sunlit while the observer is in
-# at least civil twilight (sun below -6 degrees geometric, the
-# Heavens-Above convention), sampled at rise, culmination and set --
-# whole-pass sampling catches the mid-pass fade-out into Earth's shadow.
-# next_visible_pass additionally requires a culmination of at least 10
-# degrees (a go-watch recommendation, not a bare fact like next_pass).
+# A pass is visible when, at the same instant, the satellite is sunlit,
+# the observer is in at least civil twilight (sun below -6 degrees
+# geometric, the Heavens-Above convention) and the satellite is at least
+# 10 degrees up -- for at least a minute.  The stretch where all three
+# hold is the pass's visible window: a satellite lit only near the
+# horizon, or only for seconds, is not worth going out for, however high
+# its shadowed culmination.  The window is found on a grid across the
+# pass, SAT_VISIBLE_GRID_SECS apart, and each end bisected
+# SAT_VISIBLE_BISECTIONS times (0.08 s).  The grid step must not exceed
+# SAT_VISIBLE_MIN_SECONDS: any stretch at least one step long holds a grid
+# point, so no window long enough to count is missed.
 SAT_DARK_SUN_ALT_DEGREES = -6.0
-SAT_VISIBLE_MIN_CULMINATION_DEGREES = 10.0
+SAT_VISIBLE_MIN_ALTITUDE_DEGREES = 10.0
+SAT_VISIBLE_MIN_SECONDS = 60.0
+SAT_VISIBLE_GRID_SECS = 10.0
+SAT_VISIBLE_BISECTIONS = 7
+# A bound on how fast the sun's altitude can change, degrees a minute:
+# the hour angle's rate (15 degrees an hour, a hair more) times
+# cos(latitude) times sin(azimuth).  It lets a pass whose sky the sun
+# keeps too bright skip the grid (sun_never_dark).
+SAT_SUN_RATE_DEGREES_PER_MIN = 0.26
 
 # Tag form addressing a LISTED satellite by number, e.g. $almanac.sat_25544.
 # Unlike hip_<number> (whose whole catalog is on disk), this is only an
@@ -786,7 +997,7 @@ SAT_TAG_RE = re.compile(r'sat_(\d+)$')
 # ── comets ───────────────────────────────────────────────────────────────────
 # One MPC CometEls.txt file (~160 KB, every comet with a current orbit -- 953
 # rows in August 2026) serves ALL configured comets, cached beside the
-# satellite TLEs under get_sat_dir.  [Skyfield] [[Comets]] maps tag names to
+# satellite elements under get_sat_dir.  [Skyfield] [[Comets]] maps tag names to
 # MPC designations (halley = 1P, hale_bopp = C/1995 O1); the friendly name is
 # the config KEY, and the value is matched against the file's readable
 # designation column after case/whitespace normalization ONLY -- no fuzzy
@@ -794,12 +1005,40 @@ SAT_TAG_RE = re.compile(r'sat_(\d+)$')
 COMET_URL = 'https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt'
 COMET_FILE = 'wxskyfield_comets.txt'
 
-# MPC recomputes the file continuously, but unlike satellite TLEs (useless
+# MPC recomputes the file continuously, but unlike satellite elements (useless
 # after days) two-body comet elements stay serviceable for months: refresh on
 # the scale of days, not hours -- and there is no usability gate at all, only
 # the elements_epoch/elements_age diagnostics.
 COMET_REFRESH_SECS = 2 * 86400
-COMET_RETRY_BASE_SECS = 300
+
+# While the MPC rebuilds the file it can serve part of it: on 2026-10-23 a
+# 261-row subset of 965 for about 40 minutes, every row valid, 1P and
+# C/1995 O1 not among them.  One partial has been seen; a partial could hold
+# any share of the rows.  So an answer is judged against the cached file
+# (judge_comet_answer) and REFUSED, the cached file serving on, when it is
+# short -- under COMET_SHORT_PERCENT of the cached file's valid rows -- or
+# lacks a configured comet the cached file has.  The MPC also genuinely drops
+# faded comets, so the refusals end once the cached file is COMET_KEEP_SECS
+# old: the next answer with a valid row is then saved whatever it is.  A
+# refused answer is asked for again in COMET_RETRY_SECS while the cached file
+# is younger than COMET_RETRY_UNTIL_SECS (the first day after the refresh came
+# due) and in COMET_WAIT_SECS after that.  COMET_WAIT_SECS is also the wait
+# after a failure with a cached file (it serves meanwhile) and after a 403 or
+# 429 with none (the MPC is refusing this station; asking sooner cannot change
+# that); any other failure with no cached file waits COMET_RETRY_SECS, since
+# then the station has no comets at all.  COMET_WAIT_SECS is deliberately not
+# a whole number of days: each retry lands three hours later in the day than
+# the last instead of returning to one time-of-day rebuild window.  Comet temp
+# files older than COMET_TMP_SWEEP_SECS are deleted before a save (a weewxd
+# stopped mid-write, or the fixed-name .tmp older releases wrote).  The log
+# messages state these numbers as literals; the tests pin each beside its
+# constant.
+COMET_RETRY_SECS = 3 * 3600
+COMET_RETRY_UNTIL_SECS = 3 * 86400
+COMET_WAIT_SECS = 2 * 86400 + 3 * 3600
+COMET_KEEP_SECS = 7 * 86400
+COMET_SHORT_PERCENT = 95
+COMET_TMP_SWEEP_SECS = 86400
 
 # Periodic-comet readable designations start "12P/", "220P/", "73P-B/" (and
 # D for defunct, I for interstellar); everything else is the "C/1995 O1
@@ -959,29 +1198,78 @@ def parse_comets(skyfield_config_dict: Dict[str, Any],
     return comets
 
 
-def fetch_comet_elements(path: str, timeout: float = 30.0) -> None:
-    """Download CometEls.txt from the MPC into path.  Validates before any
-    write -- the payload must contain at least one parseable comet row,
-    never the CONFIGURED designations (a vanishing row is a tag-time
-    concern, not a download failure).  The write is atomic (temp file +
-    os.replace), so report threads never see a partial file; raises on any
-    failure, leaving the previous file in place -- callers own backoff."""
+def comet_rows(data: bytes) -> Tuple[List[CometRow], List[Tuple[str, str]]]:
+    """The one reader of CometEls text, for the fetch and the tag reader
+    alike, so the same bytes give the same rows wherever they are read.
+    Decoded as ascii with each bad byte one replacement character (so the
+    fixed columns never shift), split with str.splitlines().  Returns the
+    valid rows in file order -- the first VALID row for a designation wins,
+    so a damaged row never shadows a good one -- and, for each row with a
+    designation that fails to parse, its designation key and the error's
+    text, for the tag reader's log line."""
+    rows: List[CometRow] = []
+    seen = set()
+    bad: List[Tuple[str, str]] = []
+    for line in data.decode('ascii', 'replace').splitlines():
+        if not line[102:158].strip():
+            continue
+        try:
+            row = parse_comet_row(line)
+        except ValueError as e:
+            bad.append((comet_designation_key(line[102:158]), str(e)))
+            continue
+        if row.designation_key not in seen:
+            seen.add(row.designation_key)
+            rows.append(row)
+    return rows, bad
+
+
+def download_comet_elements(timeout: float = 30.0) -> bytes:
+    """CometEls.txt from the MPC, as the bytes it sent.  Raises whatever
+    happened -- an HTTP status as the HTTPError it is, so the caller can
+    read it (http_answer)."""
     request = urllib.request.Request(COMET_URL,
                                      headers={'User-Agent': SAT_USER_AGENT})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        payload = response.read().decode('ascii', 'replace')
-    for line in payload.splitlines():
-        try:
-            parse_comet_row(line)
-            break
-        except ValueError:
-            continue
-    else:
-        raise ValueError('no parseable comet rows in the downloaded file')
-    tmp_path = '%s.tmp' % path
-    with open(tmp_path, 'w') as f:
-        f.write(payload)
-    os.replace(tmp_path, path)
+    with open_url(request, timeout) as response:
+        return response.read()
+
+
+COMET_SAVE = 'save'
+COMET_REFUSE = 'refuse'
+
+
+class CometJudgment(NamedTuple):
+    """judge_comet_answer's verdict on an MPC answer."""
+    outcome: str        # COMET_SAVE or COMET_REFUSE
+    rule: str           # 'no_cache', 'keep', 'short', 'lacking' or 'ok'
+    answer_rows: int
+    cached_rows: int
+    lacking: List[str]  # configured designations the answer lacks that the cached file has
+
+
+def judge_comet_answer(answer: List[CometRow], cached: Optional[List[CometRow]],
+                       age: float, configured: Iterable[str]) -> CometJudgment:
+    """Save or refuse an MPC answer, from the answer's valid rows, the cached
+    file's (None when there is no cached file: missing, unreadable, or
+    without a valid row), the cached file's age in seconds and the
+    configured designations -- and nothing else, so no history, restart or
+    clock step can change a verdict.  In order: no cached file, save; the
+    cached file COMET_KEEP_SECS old or older, save; the answer short, refuse;
+    the answer lacking a configured comet the cached file has, refuse;
+    otherwise save.  Both refusals end at the same age, so their order does
+    not matter.  Pure, so every rule is tested directly."""
+    if cached is None:
+        return CometJudgment(COMET_SAVE, 'no_cache', len(answer), 0, [])
+    have = {row.designation_key for row in answer}
+    had = {row.designation_key for row in cached}
+    lacking = sorted(d for d in set(configured) if d in had and d not in have)
+    if age >= COMET_KEEP_SECS:
+        return CometJudgment(COMET_SAVE, 'keep', len(answer), len(cached), lacking)
+    if 100 * len(answer) < COMET_SHORT_PERCENT * len(cached):
+        return CometJudgment(COMET_REFUSE, 'short', len(answer), len(cached), lacking)
+    if lacking:
+        return CometJudgment(COMET_REFUSE, 'lacking', len(answer), len(cached), lacking)
+    return CometJudgment(COMET_SAVE, 'ok', len(answer), len(cached), [])
 
 
 # ── meteor showers ───────────────────────────────────────────────────────────
@@ -1317,18 +1605,61 @@ def daylight_seconds(rise: Optional[float], set_: Optional[float],
     return 86400 if up_all_day() else 0
 
 
+def omm_row(text: str, norad: int) -> Dict[str, str]:
+    """The OMM fields for the given satellite from CSV text: CelesTrak's
+    FORMAT=CSV answer (a header line and one row) or Space-Track's OMM
+    CSV (more columns, every value quoted).  The row is found by its
+    NORAD_CAT_ID, and columns Skyfield does not read are ignored.  Raises
+    ValueError when the text holds no row for this catalog number (e.g.
+    CelesTrak's "No GP data found" answer, an HTML page, a truncated
+    download, or a corrupt cache file).  A byte-order mark, which a
+    spreadsheet saving CSV may put first, is dropped."""
+    reader = csv.DictReader(io.StringIO(text.lstrip('\ufeff')))
+    if 'NORAD_CAT_ID' not in (reader.fieldnames or []):
+        raise ValueError('no OMM header line (NORAD_CAT_ID) found')
+    others: List[int] = []
+    for row in reader:
+        try:
+            catnr = int((row.get('NORAD_CAT_ID') or '').strip())
+        except ValueError:
+            continue
+        if catnr == norad:
+            return row
+        others.append(catnr)
+    if others:
+        raise ValueError('OMM is for catalog number %s, not %d'
+                         % (', '.join(str(n) for n in others), norad))
+    raise ValueError('no OMM element row found')
+
+
+# Alpha-5, the TLE convention for catalog numbers past 99999: the first
+# of the five characters is a letter standing for 10 to 33 -- A to Z
+# without I and O, which read as digits -- so E8493 is 148493.
+ALPHA5_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+
+
+def tle_catalog_number(field: str) -> int:
+    """The catalog number in a TLE's five-character field, plain or
+    Alpha-5.  Raises ValueError for anything else."""
+    field = field.strip()
+    if len(field) == 5 and field[0] in ALPHA5_LETTERS and field[1:].isdigit():
+        return (ALPHA5_LETTERS.index(field[0]) + 10) * 10000 + int(field[1:])
+    return int(field)
+
+
 def tle_lines(text: str, norad: int) -> Tuple[str, str, str]:
     """(name, line1, line2) of the two-line element set for the given
-    satellite in text -- the wire format CelesTrak's CATNR query returns
-    and the cache files hold: an optional name line, then the '1 '/'2 '
-    element lines.  Raises ValueError when the text is not a TLE for
-    this catalog number (e.g. CelesTrak's "No GP data found" answer, a
-    truncated download, or a corrupt cache file)."""
+    satellite in text, as a station maintaining its own element files
+    may supply them, and as every release before 2.10 cached them: an
+    optional name line, then the '1 '/'2 ' element lines, the catalog
+    number plain or Alpha-5.  Raises ValueError when the text is not a
+    TLE for this catalog number (e.g. a truncated file or a corrupt
+    one)."""
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     for i, line in enumerate(lines):
         if line.startswith('1 ') and i + 1 < len(lines) and lines[i + 1].startswith('2 '):
             try:
-                catnr = int(line[2:7])
+                catnr = tle_catalog_number(line[2:7])
             except ValueError:
                 break
             if catnr != norad:
@@ -1338,19 +1669,178 @@ def tle_lines(text: str, norad: int) -> Tuple[str, str, str]:
     raise ValueError('no two-line element set found')
 
 
-def fetch_satellite_elements(norad: int, path: str, timeout: float = 15.0) -> None:
-    """Fetch the current TLE for the given NORAD catalog number from
-    CelesTrak into path.  The write is atomic (temp file, then rename)
-    and the payload is validated first, so the previous file survives
-    any failure -- serving slightly old elements always beats serving
-    none.  Raises on any failure; callers own the backoff."""
+def sun_never_dark(sun_at_rise: float, sun_at_set: float, duration_secs: float) -> bool:
+    """Whether the sun stays at or above SAT_DARK_SUN_ALT_DEGREES for a
+    whole pass, judged from its altitude (degrees) at the pass's two ends.
+    Across the pass the sun can dip below the lower of the two by at most
+    its fastest rate times half the pass -- a bound on its speed, so it
+    holds however the altitude turns, for a pass of any length.  True
+    means no instant of the pass can be dark enough to see it."""
+    dip = SAT_SUN_RATE_DEGREES_PER_MIN * duration_secs / 120.0
+    return min(sun_at_rise, sun_at_set) - dip >= SAT_DARK_SUN_ALT_DEGREES
+
+
+def window_peak(start: Tuple[float, float, float], end: Tuple[float, float, float],
+                culminations: Iterable[Tuple[float, float, float, bool]]) -> Tuple[float, float, float]:
+    """The highest point of a visible window, as (time, altitude, azimuth):
+    the higher of its two ends, unless a culmination inside the window that
+    itself qualifies (sunlit against a dark sky, as flagged) is higher.
+    Between culminations the altitude passes through a minimum, so no other
+    instant can be higher.  A culmination that does not qualify -- in
+    shadow inside a window with a gap -- is not a point anyone could see."""
+    points = [start, end] + [(ts, alt, az) for ts, alt, az, qualifies in culminations
+                             if qualifies and start[0] <= ts <= end[0]]
+    return max(points, key=lambda pt: pt[1])
+
+
+def may_have_window(max_altitude: float, sun_at_rise: float, sun_at_set: float,
+                    duration_secs: float) -> bool:
+    """Whether a pass can have a visible window at all: it must climb
+    past the visibility bar, under a sky that can get dark enough.  The
+    passes that cannot (most of them: low, or in daylight) skip the grid
+    search -- it is the costly part of the pass list."""
+    return (max_altitude >= SAT_VISIBLE_MIN_ALTITUDE_DEGREES
+            and not sun_never_dark(sun_at_rise, sun_at_set, duration_secs))
+
+
+def satellite_from_text(text: str, norad: int, ts: Any, omm: bool) -> Any:
+    """A skyfield EarthSatellite from an element file's text: OMM CSV
+    when omm, else a TLE.  Raises ValueError when the text holds no
+    usable elements for this catalog number -- the one test both the
+    fetch (before it writes) and the cache (when it loads) apply, so a
+    file the fetch accepts is a file the tags can use."""
+    if not omm:
+        name, line1, line2 = tle_lines(text, norad)
+        return skyfield.api.EarthSatellite(line1, line2, name, ts)
+    if not skyfield_reads_omm():
+        raise ValueError(sat_omm_message())
+    row = omm_row(text, norad)
+    short = [key for key, value in row.items() if value is None]
+    if short:
+        raise ValueError('the OMM row has no value for %s' % ', '.join(short))
+    try:
+        sat = skyfield.api.EarthSatellite.from_omm(ts, row)
+    except KeyError as e:
+        raise ValueError('the OMM row has no %s column' % e)
+    if not sat.name:
+        sat.name = 'NORAD %d' % norad
+    return sat
+
+
+# WHAT A FETCH DOES WITH EACH ANSWER.  CelesTrak's usage policy: a client
+# that gets anything but a good answer stops asking, and a person looks
+# into it.  Retrying a struggling server is what earns an address its
+# firewall: on 2026-10-05 a fleet retrying CelesTrak's 500s and 503s every
+# few minutes ran past its limit, was answered 403, retried through those
+# too, and was firewalled.  So:
+#   - a 200 carrying the elements: saved, and the round goes on;
+#   - CelesTrak's 404 carrying "No GP data found" (verified live: a
+#     catalog number it does not carry, a typo or a decayed object): that
+#     satellite is not asked for again until weewxd restarts, logged as an
+#     error naming the number, and the round goes on -- one wrong number
+#     must not starve the rest.  Any other 404 is not about the number
+#     (CelesTrak's policy: an outdated URL) and is one of the rest;
+#   - anything else -- any other status, a redirect among them (CelesTrak
+#     answers 301 to an outdated URL; open_url never follows one), a 200
+#     that is not elements, no answer at all (a timeout, a refused
+#     connection, DNS) -- ends the round: no satellite is asked again
+#     until the next round, one cadence on, logged once as an error with
+#     the answer's own words.
+# The comets are one file from the Minor Planet Center, which publishes no
+# policy: what each answer does is written at the COMET_* constants.
+# Restarting weewxd, a person acting on an error, asks again at once.
+NOT_CARRIED = 404
+NOT_CARRIED_WORDS = 'No GP data found'
+HTTP_EXCERPT_CHARS = 200
+# Each error's answer, read once: an error's body can be read only once.
+# Kept beside the error rather than on it, since an HTTPError hands
+# unknown attribute lookups to the file it wraps.
+_ANSWERS: 'weakref.WeakKeyDictionary[BaseException, HttpAnswer]' = weakref.WeakKeyDictionary()
+
+
+class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    """A 3xx is an answer, not a direction: declining it makes urllib
+    raise it as an HTTPError like any other status."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_RefuseRedirects)
+
+
+def open_url(request: urllib.request.Request, timeout: float):
+    """Every element download opens here: the answer as it came, a
+    redirect never followed (see WHAT A FETCH DOES WITH EACH ANSWER)."""
+    return _OPENER.open(request, timeout=timeout)
+
+
+class HttpAnswer(NamedTuple):
+    code: int
+    text: str   # "HTTP 503 Service Unavailable: <the page's words>", for the log
+
+
+def http_answer(e: BaseException) -> Optional[HttpAnswer]:
+    """For any HTTP status open_url raised, the status and the answer's
+    text -- scripts and styles dropped (an unclosed one to the end, since
+    a 16 KB read can stop inside it), tags stripped, entities decoded,
+    whitespace collapsed, cut to HTTP_EXCERPT_CHARS -- for the log; None
+    for a failure with no answer (a timeout, a refused connection, DNS)
+    or with a 200 that was not elements.  Reading the body cannot raise:
+    a body that will not read leaves the status alone.  An error's body
+    can be read once, so the answer is kept (_ANSWERS) and every later
+    call gets the same words."""
+    if not isinstance(e, urllib.error.HTTPError):
+        return None
+    kept = _ANSWERS.get(e)
+    if kept is not None:
+        return kept
+    try:
+        text = e.read(16384).decode('utf-8', 'replace')
+    except Exception:
+        text = ''
+    text = re.sub(r'(?is)<(script|style)\b.*?(?:</\1\s*>|\Z)', ' ', text)
+    text = re.sub(r'<[^>]*>', ' ', text)
+    text = ' '.join(html.unescape(text).split())
+    if len(text) > HTTP_EXCERPT_CHARS:
+        text = text[:HTTP_EXCERPT_CHARS].rstrip() + '...'
+    status = 'HTTP %d %s' % (e.code, e.reason)
+    answer = HttpAnswer(e.code, '%s: %s' % (status, text) if text else status)
+    try:
+        _ANSWERS[e] = answer
+    except TypeError:
+        pass
+    return answer
+
+
+def not_carried(answer: Optional[HttpAnswer]) -> bool:
+    """CelesTrak's own answer for a catalog number it does not carry: a
+    404 saying "No GP data found"."""
+    return answer is not None and answer.code == NOT_CARRIED and NOT_CARRIED_WORDS in answer.text
+
+
+def failure_words(e: BaseException) -> str:
+    """What a failed fetch got, for the log: the status and its words,
+    or the failure itself, named when it says nothing."""
+    answer = http_answer(e)
+    if answer is not None:
+        return answer.text
+    return str(e) or type(e).__name__
+
+
+def fetch_satellite_elements(norad: int, path: str, ts: Any, timeout: float = 15.0) -> None:
+    """Fetch the current elements for the given NORAD catalog number from
+    CelesTrak, as OMM CSV, into path.  The write is atomic (temp file,
+    then rename) and the payload is validated first, by building the
+    satellite from it, so the previous file survives any failure --
+    serving slightly old elements always beats serving none.  Raises on
+    any failure; the caller decides when to ask again."""
     request = urllib.request.Request(CELESTRAK_URL % norad,
                                      headers={'User-Agent': SAT_USER_AGENT})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        payload = response.read().decode('ascii', 'replace')
-    tle_lines(payload, norad)
+    with open_url(request, timeout) as response:
+        payload = response.read().decode('utf-8', 'replace')
+    satellite_from_text(payload, norad, ts, omm=True)
     tmp_path = '%s.tmp' % path
-    with open(tmp_path, 'w') as f:
+    with open(tmp_path, 'w', encoding='utf-8', newline='') as f:
         f.write(payload)
     os.replace(tmp_path, path)
 
@@ -1381,6 +1871,11 @@ def parse_satellites(skyfield_config_dict: Dict[str, Any]) -> Dict[str, int]:
         except ValueError:
             log.error('Ignoring [Skyfield] [[Satellites]] entry %s = %r: the value'
                       ' must be the satellite\'s NORAD catalog number.' % (name, value))
+            continue
+        if not 0 < norad <= SAT_MAX_CATALOG_NUMBER:
+            log.error('Ignoring [Skyfield] [[Satellites]] entry %s = %d: SGP4, which'
+                      ' computes satellite positions, takes catalog numbers from 1 to'
+                      ' %d.' % (name, norad, SAT_MAX_CATALOG_NUMBER))
             continue
         if tag in EPHEMERIS_KEYS or tag in NAMED_STARS or HIP_TAG_RE.match(tag) \
                 or SAT_TAG_RE.match(tag) or tag in ('sun', 'earth'):
@@ -1452,12 +1947,13 @@ class Sky():
         # fetching.
         self.satellites: Dict[str, int] = satellites or {}
         self.sat_dir: Optional[str] = sat_dir
-        # Parsed elements keyed by NORAD number, tagged with the cache
-        # file's mtime so a refreshed file is picked up on the next tag
-        # evaluation; and the last usable/unusable state per satellite,
-        # so the age-cutoff warning fires once at each crossing rather
-        # than on every tag.
-        self._sat_cache: Dict[int, Tuple[Optional[float], Optional[Tuple[Any, float]]]] = {}
+        # Parsed elements keyed by NORAD number, tagged with the element
+        # files' mtimes (the CSV's, the TLE's) so a refreshed file is
+        # picked up on the next tag evaluation; and the last
+        # usable/unusable state per satellite, so the age-cutoff warning
+        # fires once at each crossing rather than on every tag.
+        self._sat_cache: Dict[int, Tuple[Tuple[Optional[float], Optional[float]],
+                                         Optional[Tuple[Any, float]]]] = {}
         self._sat_usable: Dict[int, bool] = {}
         # The configured comets (tag name -> normalized MPC designation),
         # same lazy contract as the satellites: nothing is read here.  The
@@ -1474,13 +1970,13 @@ class Sky():
         # and failed, don't retry).
         self._constellation_map: Any = None
 
-        # find_risings/find_settings arrived in Skyfield 1.47; on anything
-        # older every rise/set tag would fail at report time, so decline
-        # up front (e.g., Debian 12 packages Skyfield 1.45).
-        if tuple(skyfield.VERSION[:2]) < (1, 47):
-            log.error('init: weewx-skyfield requires Skyfield 1.47 or later, found %d.%d.'
+        # Below SKYFIELD_MIN_VERSION every rise/set tag would fail at
+        # report time, so decline up front (e.g., Debian 12 packages
+        # Skyfield 1.45).
+        if tuple(skyfield.VERSION[:2]) < SKYFIELD_MIN_VERSION:
+            log.error('init: weewx-skyfield requires Skyfield %d.%d or later, found %d.%d.'
                       '  The Skyfield almanac will not run.'
-                      % (skyfield.VERSION[0], skyfield.VERSION[1]))
+                      % (SKYFIELD_MIN_VERSION + tuple(skyfield.VERSION[:2])))
             return
 
         # The timescale is built once and reused; building it parses
@@ -1828,34 +2324,52 @@ class Sky():
         return None
 
     def sat_path(self, norad: int) -> str:
+        """The satellite's OMM CSV file, the one the fetch writes."""
         return os.path.join(self.sat_dir or '.', SAT_FILE_FORMAT % norad)
 
+    def sat_tle_path(self, norad: int) -> str:
+        """The satellite's TLE file: a station's own, or a pre-2.10 cache."""
+        return os.path.join(self.sat_dir or '.', SAT_TLE_FILE_FORMAT % norad)
+
+    def sat_mtimes(self, norad: int) -> Tuple[Optional[float], Optional[float]]:
+        """The (CSV, TLE) files' mtimes, None for a file that is not there."""
+        mtimes: List[Optional[float]] = []
+        for path in (self.sat_path(norad), self.sat_tle_path(norad)):
+            try:
+                mtimes.append(os.stat(path).st_mtime)
+            except OSError:
+                mtimes.append(None)
+        return mtimes[0], mtimes[1]
+
     def satellite_elements(self, norad: int) -> Optional[Tuple[Any, float]]:
-        """The satellite's orbital elements from its cache file, as
-        (skyfield EarthSatellite, TLE epoch timestamp) -- or None when
-        the file is missing or not a usable TLE.  Results are cached
-        against the file's mtime, so the fetch worker replacing the file
-        is picked up on the next tag evaluation, and a missing or
+        """The satellite's orbital elements, as (skyfield EarthSatellite,
+        epoch timestamp), from its CSV file or its TLE file, whichever
+        holds the later epoch (the CSV on a tie) -- or None when neither
+        is there and usable.  Results are cached against both files'
+        mtimes, so the fetch worker replacing a file, or a person copying
+        one in, is picked up on the next tag evaluation, and a missing or
         corrupt file is not re-read (or re-logged) every tag.  Never
-        raises: a broken cache file costs only this satellite."""
-        try:
-            mtime: Optional[float] = os.stat(self.sat_path(norad)).st_mtime
-        except OSError:
-            mtime = None
+        raises: a broken file costs only itself, and only this
+        satellite."""
+        mtimes = self.sat_mtimes(norad)
         cached = self._sat_cache.get(norad)
-        if cached is not None and cached[0] == mtime:
+        if cached is not None and cached[0] == mtimes:
             return cached[1]
         elements: Optional[Tuple[Any, float]] = None
-        if mtime is not None:
+        for path, mtime, omm in ((self.sat_path(norad), mtimes[0], True),
+                                 (self.sat_tle_path(norad), mtimes[1], False)):
+            if mtime is None:
+                continue
             try:
-                with open(self.sat_path(norad)) as f:
-                    name, line1, line2 = tle_lines(f.read(), norad)
-                sat = skyfield.api.EarthSatellite(line1, line2, name, self.ts)
-                elements = (sat, sat.epoch.utc_datetime().timestamp())
+                with open(path, encoding='utf-8', errors='replace') as f:
+                    sat = satellite_from_text(f.read(), norad, self.ts, omm)
+                epoch = sat.epoch.utc_datetime().timestamp()
             except Exception as e:
-                log.error('satellite_elements: could not load %s: %s'
-                          % (self.sat_path(norad), e))
-        self._sat_cache[norad] = (mtime, elements)
+                log.error('satellite_elements: could not load %s: %s' % (path, e))
+                continue
+            if elements is None or epoch > elements[1]:
+                elements = (sat, epoch)
+        self._sat_cache[norad] = (mtimes, elements)
         return elements
 
     def note_sat_usable(self, norad: int, usable: bool) -> None:
@@ -1881,9 +2395,10 @@ class Sky():
         longer carries the designation -- MPC drops faded comets, so a
         configured comet CAN vanish from a fresh download; the binder
         serves the honest no-elements state, never an error.  Lazy and
-        mtime-invalidated like satellite_elements; only CONFIGURED
-        designations are parsed (six rows, not 953), and a malformed
-        matching row logs and disables only that comet."""
+        mtime-invalidated like satellite_elements; read through
+        comet_rows, the fetch's reader, so the two never disagree about a
+        row; a malformed row for a configured comet logs and disables only
+        that comet, and a later valid row for it still serves."""
         designation = self.comets.get(name)
         if designation is None:
             return None
@@ -1895,20 +2410,19 @@ class Sky():
             wanted = set(self.comets.values())
             rows: Dict[str, CometRow] = {}
             try:
-                with open(self.comet_path()) as f:
-                    for line in f:
-                        key = comet_designation_key(line[102:158])
-                        if key in wanted and key not in rows:
-                            try:
-                                rows[key] = parse_comet_row(line)
-                            except ValueError as e:
-                                log.error('comet_elements: could not parse the'
-                                          ' %s row in %s: %s'
-                                          % (key, self.comet_path(), e))
-            except OSError as e:
+                with open(self.comet_path(), 'rb') as f:
+                    parsed, bad = comet_rows(f.read())
+            except (OSError, ValueError) as e:
                 log.error('comet_elements: could not read %s: %s'
                           % (self.comet_path(), e))
-                rows = {}
+                parsed, bad = [], []
+            for parsed_row in parsed:
+                if parsed_row.designation_key in wanted:
+                    rows[parsed_row.designation_key] = parsed_row
+            for key, error in bad:
+                if key in wanted:
+                    log.error('comet_elements: could not parse the %s row in %s: %s'
+                              % (key, self.comet_path(), error))
             self._comet_file = (mtime, rows)
             self._comet_vectors.clear()
         row = self._comet_file[1].get(designation)
@@ -2894,7 +3408,15 @@ class SatellitePass:
     never a method: consumers that walk attribute chains with plain
     getattr (loopdata almanac fields) must resolve them without
     Cheetah's autocall.  With no qualifying pass, or no usable elements,
-    every ValueHelper is empty ("N/A") and visible is None."""
+    every ValueHelper is empty ("N/A") and visible is None.
+
+    The visible_* attributes describe the visible window -- the part of
+    the pass that can be seen (see SAT_VISIBLE_MIN_ALTITUDE_DEGREES) --
+    as the three points of a Heavens-Above table row: visible_start,
+    visible_peak and visible_end, each with an _altitude and an _azimuth,
+    plus visible_duration.  The geometric attributes above describe the
+    whole pass, horizon to horizon.  Every visible_* is empty when the
+    pass is not visible."""
 
     def __init__(self, binder: 'SkyfieldAlmanacBinder',
                  data: Optional[Dict[str, Any]]):
@@ -2911,11 +3433,7 @@ class SatellitePass:
         self.rise = almanac_type.time_value(a, d.get('rise'), 'ephem_year')
         self.culmination = almanac_type.time_value(a, d.get('culmination'), 'ephem_year')
         self.set = almanac_type.time_value(a, d.get('set'), 'ephem_year')
-        max_altitude = d.get('max_altitude')
-        self.max_altitude = ValueHelper(
-            ValueTuple(math.radians(max_altitude) if max_altitude is not None else None,
-                       'radian', 'group_angle'),
-            context='ephem_day', formatter=a.formatter, converter=a.converter)
+        self.max_altitude = self._angle(a, d.get('max_altitude'))
         self.rise_azimuth = almanac_type.direction_value(a, d.get('rise_azimuth'))
         self.culmination_azimuth = almanac_type.direction_value(a, d.get('culmination_azimuth'))
         self.set_azimuth = almanac_type.direction_value(a, d.get('set_azimuth'))
@@ -2923,6 +3441,30 @@ class SatellitePass:
             ValueTuple(d['set'] - d['rise'] if d else None, 'second', 'group_deltatime'),
             context='hour', formatter=a.formatter, converter=a.converter)
         self.visible: Optional[bool] = d.get('visible') if d else None
+        # The window keys exist only on a visible pass, so every visible_*
+        # of any other pass, or of none, is empty.  Times are 'ephem_year'
+        # for the same reason as rise and set.
+        self.visible_start = almanac_type.time_value(a, d.get('visible_start'), 'ephem_year')
+        self.visible_peak = almanac_type.time_value(a, d.get('visible_peak'), 'ephem_year')
+        self.visible_end = almanac_type.time_value(a, d.get('visible_end'), 'ephem_year')
+        self.visible_start_altitude = self._angle(a, d.get('visible_start_altitude'))
+        self.visible_peak_altitude = self._angle(a, d.get('visible_peak_altitude'))
+        self.visible_end_altitude = self._angle(a, d.get('visible_end_altitude'))
+        self.visible_start_azimuth = almanac_type.direction_value(a, d.get('visible_start_azimuth'))
+        self.visible_peak_azimuth = almanac_type.direction_value(a, d.get('visible_peak_azimuth'))
+        self.visible_end_azimuth = almanac_type.direction_value(a, d.get('visible_end_azimuth'))
+        self.visible_duration = ValueHelper(
+            ValueTuple(d['visible_end'] - d['visible_start'] if d.get('visible') else None,
+                       'second', 'group_deltatime'),
+            context='hour', formatter=a.formatter, converter=a.converter)
+
+    @staticmethod
+    def _angle(a: Any, degrees: Optional[float]) -> ValueHelper:
+        """An altitude, as max_altitude is served: radians in group_angle."""
+        return ValueHelper(
+            ValueTuple(math.radians(degrees) if degrees is not None else None,
+                       'radian', 'group_angle'),
+            context='ephem_day', formatter=a.formatter, converter=a.converter)
 
 
 class SkyfieldAlmanacBinder:
@@ -3868,13 +4410,14 @@ class SkyfieldAlmanacBinder:
 
     def _sat_passes(self, sat: Any, epoch_ts: float) -> List[Dict[str, Any]]:
         """Every pass in the elements' validity window -- a day before the
-        TLE epoch through the seven-day age cutoff; never searching times
-        the elements cannot be trusted for -- computed once per element
-        set, location and horizon, and cached (the seven-day SGP4 sweep
-        is milliseconds, but loopdata asks every loop packet).  The
-        horizon is GEOMETRIC (default 0, overridable via the existing
-        $almanac(horizon=10) argument): refraction is irrelevant to
-        satellite watching, per the USNO-over-PyEphem policy."""
+        elements' epoch through the seven-day age cutoff; never searching times
+        the elements cannot be trusted for -- with each pass's visible
+        window, computed once per element set, location and horizon, and
+        cached: the sweep costs a few tenths of a second on a Raspberry Pi,
+        and loopdata asks every loop packet.  The horizon is GEOMETRIC
+        (default 0, overridable via the existing $almanac(horizon=10)
+        argument): refraction is irrelevant to satellite watching, per the
+        USNO-over-PyEphem policy."""
         a = self.almanac
         horizon = float(a.horizon)
         key = ('sat_passes', self.norad, round(epoch_ts), a.lat, a.lon,
@@ -3885,8 +4428,7 @@ class SkyfieldAlmanacBinder:
     def _compute_sat_passes(self, sat: Any, epoch_ts: float,
                             horizon: float) -> List[Dict[str, Any]]:
         almanac_type = self.almanac_type
-        sky = almanac_type.sky
-        geographic, observer = almanac_type.location(self.almanac)
+        geographic, _ = almanac_type.location(self.almanac)
         t0 = almanac_type.skyfield_time(epoch_ts - 86400)
         t1 = almanac_type.skyfield_time(epoch_ts + SAT_MAX_ELEMENT_AGE_SECS)
         times, events = sat.find_events(geographic, t0, t1,
@@ -3912,21 +4454,13 @@ class SkyfieldAlmanacBinder:
         if not raw:
             return []
         # One vectorized sweep answers every per-event question: geometric
-        # altitude and azimuth, whether the satellite is sunlit, and how
-        # dark the observer's sky is (sun below -6 degrees geometric,
-        # civil twilight, the Heavens-Above convention).  A pass is
-        # visible when ANY of its sampled instants qualifies -- sampling
-        # the whole pass catches the mid-pass fade into Earth's shadow
-        # that a culmination-only test misclassifies.
+        # altitude and azimuth, whether the satellite is sunlit, and the
+        # sun's altitude, at every rise, culmination and set.
         all_stamps = [s for rise, culms, set_ in raw
                       for s in [rise] + culms + [set_]]
-        t_all = sky.ts.from_datetimes(
-            [datetime.fromtimestamp(s, timezone.utc) for s in all_stamps])
-        alt, az, _ = (sat - geographic).at(t_all).altaz()
-        sunlit = sat.at(t_all).is_sunlit(sky.planets)
-        sun_alt, _, _ = observer.at(t_all).observe(sky.sun).apparent().altaz()
-        alt_d, az_d, sun_d = alt.degrees, az.degrees, sun_alt.degrees
+        alt_d, az_d, sunlit, sun_d = self._sat_sky(sat, all_stamps)
         passes: List[Dict[str, Any]] = []
+        candidates: List[Tuple[Dict[str, Any], List[int]]] = []
         base = 0
         for rise, culms, set_ in raw:
             idx = list(range(base, base + len(culms) + 2))
@@ -3934,32 +4468,153 @@ class SkyfieldAlmanacBinder:
             # The culmination: the highest, when find_events reports more
             # than one for a single pass.
             c = max(idx[1:-1], key=lambda k: alt_d[k])
-            passes.append({
+            p = {
                 'rise': rise, 'culmination': all_stamps[c], 'set': set_,
                 'max_altitude': float(alt_d[c]),
                 'rise_azimuth': float(az_d[idx[0]]),
                 'culmination_azimuth': float(az_d[c]),
                 'set_azimuth': float(az_d[idx[-1]]),
-                'visible': any(bool(sunlit[k]) and sun_d[k] < SAT_DARK_SUN_ALT_DEGREES
-                               for k in idx),
-            })
+                'visible': False,
+            }
+            passes.append(p)
+            if may_have_window(p['max_altitude'], float(sun_d[idx[0]]),
+                               float(sun_d[idx[-1]]), set_ - rise):
+                candidates.append((p, idx))
+        if candidates:
+            self._add_visible_windows(sat, candidates, all_stamps,
+                                      alt_d, az_d, sunlit, sun_d)
         return passes
+
+    def _sat_sky(self, sat: Any, stamps: Sequence[float]) -> Tuple[Any, Any, Any, Any]:
+        """Vectorized over unix timestamps: the satellite's geometric
+        altitude and azimuth (degrees), whether it is sunlit, and the sun's
+        altitude (degrees; observed, no refraction)."""
+        sky = self.almanac_type.sky
+        geographic, observer = self.almanac_type.location(self.almanac)
+        t = sky.ts.from_datetimes(
+            [datetime.fromtimestamp(s, timezone.utc) for s in stamps])
+        alt, az, _ = (sat - geographic).at(t).altaz()
+        sunlit = sat.at(t).is_sunlit(sky.planets)
+        sun_alt, _, _ = observer.at(t).observe(sky.sun).apparent().altaz()
+        return alt.degrees, az.degrees, sunlit, sun_alt.degrees
+
+    @staticmethod
+    def _qualifying(alt_d: Any, sunlit: Any, sun_d: Any) -> Any:
+        """Elementwise: sunlit, sun below the dark bar, satellite above the
+        visibility bar -- the instant could be seen."""
+        return (numpy.asarray(sunlit, dtype=bool)
+                & (numpy.asarray(sun_d) < SAT_DARK_SUN_ALT_DEGREES)
+                & (numpy.asarray(alt_d) >= SAT_VISIBLE_MIN_ALTITUDE_DEGREES))
+
+    def _add_visible_windows(self, sat: Any,
+                             candidates: List[Tuple[Dict[str, Any], List[int]]],
+                             all_stamps: List[float], alt_d: Any, az_d: Any,
+                             sunlit: Any, sun_d: Any) -> None:
+        """Find each candidate pass's visible window -- from the first
+        instant it could be seen to the last -- and store it in the pass,
+        with 'visible' set when the window lasts SAT_VISIBLE_MIN_SECONDS.
+
+        One grid sweep across every candidate, SAT_VISIBLE_GRID_SECS apart
+        (set appended); then the grid points either side of each window
+        end are bisected, all together, SAT_VISIBLE_BISECTIONS times.  A
+        start's bracket is (does not qualify, qualifies) and an end's the
+        reverse; each reports its qualifying side, so both window ends
+        qualify.  A window qualifying at rise or set itself (only with a
+        horizon argument of 10 degrees or more) keeps that end exactly.
+
+        The peak is window_peak's: the highest of the window's two ends
+        and every culmination inside it that itself qualifies.  The
+        culminations' values come from the event sweep
+        (alt_d and the rest, indexed like all_stamps); only the ends need
+        a new evaluation."""
+        grids = [numpy.append(numpy.arange(p['rise'], p['set'], SAT_VISIBLE_GRID_SECS),
+                              p['set']) for p, _ in candidates]
+        g_alt, _, g_lit, g_sun = self._sat_sky(sat, numpy.concatenate(grids))
+        ok = self._qualifying(g_alt, g_lit, g_sun)
+        # One record per candidate with a qualifying grid point: its pass,
+        # its event-sweep indices, its window ends so far, and the index of
+        # each end's bracket in lo/hi (None for an end at rise or set).
+        found: List[Dict[str, Any]] = []
+        lo: List[float] = []
+        hi: List[float] = []
+        is_start: List[bool] = []
+        base = 0
+        for (p, idx), g in zip(candidates, grids):
+            hits = numpy.nonzero(ok[base:base + len(g)])[0]
+            base += len(g)
+            if len(hits) == 0:
+                continue
+            i0, i1 = int(hits[0]), int(hits[-1])
+            rec: Dict[str, Any] = {'pass': p, 'idx': idx,
+                                   'start': float(g[i0]), 'end': float(g[i1]),
+                                   'start_bracket': None, 'end_bracket': None}
+            if i0 > 0:
+                rec['start_bracket'] = len(lo)
+                lo.append(float(g[i0 - 1]))
+                hi.append(float(g[i0]))
+                is_start.append(True)
+            if i1 < len(g) - 1:
+                rec['end_bracket'] = len(lo)
+                lo.append(float(g[i1]))
+                hi.append(float(g[i1 + 1]))
+                is_start.append(False)
+            found.append(rec)
+        if not found:
+            return
+        if lo:
+            lo_a, hi_a = numpy.array(lo), numpy.array(hi)
+            starts = numpy.array(is_start)
+            for _ in range(SAT_VISIBLE_BISECTIONS):
+                mid = (lo_a + hi_a) / 2.0
+                m_alt, _, m_lit, m_sun = self._sat_sky(sat, mid)
+                m = self._qualifying(m_alt, m_lit, m_sun)
+                # The midpoint takes the place of whichever side it matches.
+                to_hi = numpy.where(starts, m, ~m)
+                hi_a = numpy.where(to_hi, mid, hi_a)
+                lo_a = numpy.where(to_hi, lo_a, mid)
+            for rec in found:
+                if rec['start_bracket'] is not None:
+                    rec['start'] = float(hi_a[rec['start_bracket']])
+                if rec['end_bracket'] is not None:
+                    rec['end'] = float(lo_a[rec['end_bracket']])
+        ends = [s for rec in found for s in (rec['start'], rec['end'])]
+        e_alt, e_az, _, _ = self._sat_sky(sat, ends)
+        good_culm = self._qualifying(alt_d, sunlit, sun_d)
+        for n, rec in enumerate(found):
+            p, idx, start, end = rec['pass'], rec['idx'], rec['start'], rec['end']
+            if end - start < SAT_VISIBLE_MIN_SECONDS:
+                continue
+            first = (start, float(e_alt[2 * n]), float(e_az[2 * n]))
+            last = (end, float(e_alt[2 * n + 1]), float(e_az[2 * n + 1]))
+            peak = window_peak(first, last,
+                               [(all_stamps[k], float(alt_d[k]), float(az_d[k]),
+                                 bool(good_culm[k])) for k in idx[1:-1]])
+            p.update({
+                'visible': True,
+                'visible_start': start, 'visible_peak': peak[0], 'visible_end': end,
+                'visible_start_altitude': first[1],
+                'visible_peak_altitude': peak[1],
+                'visible_end_altitude': last[1],
+                'visible_start_azimuth': first[2],
+                'visible_peak_azimuth': peak[2],
+                'visible_end_azimuth': last[2],
+            })
 
     def _next_sat_pass(self, passes: List[Dict[str, Any]],
                        visible_only: bool) -> Optional[Dict[str, Any]]:
         """The next pass from the almanac's time.  A pass in progress IS
         the next pass (rise <= now < set: the countdown rolls into
-        "overhead now, sets in three minutes").  The visible variant adds
-        the go-watch bar: a qualifying visibility sample and a
-        culmination of at least 10 degrees; plain next_pass is the
-        unfiltered fact."""
+        "overhead now, sets in three minutes").  The visible variant is
+        the next pass worth watching: the next visible pass whose window
+        has not closed -- it rolls on when the window ends, not when the
+        satellite sets, since by then it is too low, in shadow or in a
+        brightening sky."""
         time_ts = self.almanac.time_ts
         for p in passes:
-            if p['set'] <= time_ts:
-                continue
-            if visible_only and not (
-                    p['visible'] and
-                    p['max_altitude'] >= SAT_VISIBLE_MIN_CULMINATION_DEGREES):
+            if visible_only:
+                if not p['visible'] or p['visible_end'] <= time_ts:
+                    continue
+            elif p['set'] <= time_ts:
                 continue
             return p
         return None

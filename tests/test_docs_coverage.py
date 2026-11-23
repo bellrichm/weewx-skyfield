@@ -809,8 +809,17 @@ class TestReadmeButtons:
 QUOTED_CONSTANTS = [
     ('SAT_REFRESH_SECS',                  3 * 3600,   'three hours'),
     ('COMET_REFRESH_SECS',                2 * 86400,  'two days'),
+    # Each phrase below is one no other pinned phrase contains, so a page
+    # stating a different wait cannot satisfy it (a bare 'three hours'
+    # would be found inside 'two days and three hours').
+    ('COMET_RETRY_SECS',                  3 * 3600,   'asked for again three hours later'),
+    ('COMET_RETRY_UNTIL_SECS',            3 * 86400,  'three days old'),
+    ('COMET_WAIT_SECS',                   2 * 86400 + 3 * 3600, 'two days and three hours'),
+    ('COMET_KEEP_SECS',                   7 * 86400,  'seven days old'),
+    ('COMET_SHORT_PERCENT',               95,         '95% as many comets'),
     ('SAT_MAX_ELEMENT_AGE_SECS',          7 * 86400,  'seven days'),
-    ('SAT_VISIBLE_MIN_CULMINATION_DEGREES', 10.0,     '10°'),
+    ('SAT_VISIBLE_MIN_ALTITUDE_DEGREES',  10.0,       'at least 10° up'),
+    ('SAT_VISIBLE_MIN_SECONDS',           60.0,       'a minute or more'),
     ('_HORIZON_QUANTUM_DEGREES',          0.002,      '0.002 degrees'),
 ]
 
@@ -1017,15 +1026,17 @@ class TestLanguageTable:
             'en.conf is listed in the language table, but it is the '
             'reference dictionary rather than a translation')
 
-    def test_every_row_states_reviewed_or_beta(self):
+    def test_every_row_states_reviewed_or_complete(self):
         # 'Partly reviewed' is weewx-celestial's status for a file whose
         # shared vocabulary was reviewed in THIS repo but whose own strings
         # were not; accepted here so the three manuals can share one audit.
+        # 'Beta' was retired on 2026-10-23: every file is complete, and an
+        # unreviewed one says so plainly rather than carrying a caveat.
         vague = [lang for lang, _f, status in _language_table_rows()
                  if not status.startswith(('Reviewed', 'Partly reviewed',
-                                           'Beta'))]
+                                           'Complete'))]
         assert not vague, (
-            'these rows state neither Reviewed nor Beta, so a reader cannot '
+            'these rows state neither Reviewed nor Complete, so a reader cannot '
             'tell whether a native speaker has read the file: %s'
             % ', '.join(vague))
 

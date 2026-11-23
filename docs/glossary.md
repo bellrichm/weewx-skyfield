@@ -45,7 +45,7 @@ the aberration and refraction that affect what you actually see.  Contrast *appa
 way of saying which part of the lunar surface is lit.
 
 **Culmination** — the highest point of a pass; for satellites, this manual's word for
-transit.
+transit.  The highest point you can *see* may be lower: see *visible window*.
 
 **Declination** — celestial latitude: how far north or south of the celestial equator a body
 sits.  Paired with *right ascension*.
@@ -85,12 +85,19 @@ when it crosses it.
 
 **NORAD catalog number** — the number that identifies a satellite: 25544 is the ISS.
 
+**OMM (Orbit Mean-Elements Message)** — the standard format for satellite orbital elements
+that replaces the TLE, with room for catalog numbers past 99999.  This extension fetches it as
+CSV, one header line and one row per satellite, and caches each satellite's in its own file.
+
 **Parallactic angle** — the angle between "up" as seen by an observer and celestial north,
 which is what tells you how a chart's orientation relates to the view through a telescope.
 
 **Parallax** — the tiny shift in a star's apparent position as Earth orbits, and the only
 direct measure of its distance.  A star without a measured parallax has no known distance,
 which is why this extension reports `N/A` rather than a fictitious number.
+
+**Pass** — one trip of a satellite across your sky, from the moment it rises above your
+horizon to the moment it sets.  A pass of the ISS lasts about ten minutes.
 
 **Plate** — this manual's word for one of the Sky page's two color schemes, borrowed from
 printed star atlases: the **night plate** (`night`, the default dark theme) and the **light
@@ -122,8 +129,9 @@ seven days old.
 **Supermoon** — a full moon falling within about a day of perigee, so it appears slightly
 larger and brighter.  This extension's tag uses exactly that rule.
 
-**TLE (two-line element set)** — the compact text format satellite orbital elements come in.
-Each cached file here holds one satellite's.
+**TLE (two-line element set)** — the older text format for satellite orbital elements, which
+this extension fetched before 2.10 and still reads from a file you supply.  Its catalog-number
+field holds five characters, so numbers past 99999 need the Alpha-5 form or OMM.
 
 **Topocentric** — measured from where *you* stand on Earth's surface, rather than from its
 center.  This is what you actually see, and what most of this extension's position tags
@@ -135,6 +143,12 @@ sky.
 **Twilight** — the time between sunset and full darkness, in three defined stages: **civil**
 (sun 6° below the horizon; you can still read outside), **nautical** (12°; the horizon is
 still discernible at sea), and **astronomical** (18°; the sky is as dark as it will get).
+
+**Visible pass, visible window** — a pass you can see.  Its *visible window* is the stretch
+in which the satellite is lit by the sun, your sky is dark (the sun at least 6° below the
+horizon) and the satellite is at least 10° up, all at once; a pass is visible when that
+stretch lasts a minute or more.  The window is often shorter and lower than the whole pass:
+a satellite can climb into Earth's shadow, or rise while the sky is still bright.
 
 **ZHR (zenithal hourly rate)** — the number of meteors an ideal observer would see per hour
 under a perfectly dark sky with the radiant directly overhead.  Real counts are always

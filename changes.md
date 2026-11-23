@@ -1,6 +1,174 @@
 # weewx-skyfield change history
 
-## 2.7.2 (in progress)
+## 2.12 (2026/10/26)
+- A satellite pass now counts as visible only if you can actually see it:
+  for at least a minute, the satellite must be sunlit, the sun at least 6°
+  below the horizon, and the satellite at least 10° up, all at the same
+  time.  This applies to `next_visible_pass`, `.visible`, and the Sky
+  page's satellite rows and pass chart.  Before, a pass counted if it was
+  lit against a dark sky at its rise, highest point or set, so passes were
+  listed that could not be seen: Terra from Palo Alto on 2026-10-26 was
+  listed as peaking at 90°, but could be seen for only 40 seconds, never
+  above 2.4°.  In one week over Palo Alto, 9 of the 25 passes listed could
+  not be seen.
+- Every pass has ten new attributes for the part you can see, its visible
+  window: `visible_start`, `visible_peak` and `visible_end` (when it comes
+  into view, is highest, and goes out of view), each also with `_altitude`
+  and `_azimuth`, plus `visible_duration`.  They are on both `next_pass`
+  and `next_visible_pass`, and read N/A when the pass is not visible.  The
+  existing attributes (`rise`, `culmination`, `set`, `max_altitude`, the
+  azimuths and `duration`) still describe the whole pass, from horizon to
+  horizon.
+- `next_visible_pass` moves on to the next visible pass as soon as the
+  visible window closes, often minutes before the satellite sets;
+  `next_pass` still waits for it to set.  With weewx-loopdata, a group of
+  `next_visible_pass` fields is kept until the latest time among them has
+  passed, so leave `.set` out of a group that should move on with the
+  window.
+- The satellite rows describe the visible window: where the satellite
+  comes into view, its highest point, where it disappears, and for how
+  long.
+- The pass chart shows the sky at the visible window's highest point.  The
+  visible part is drawn solid over the dashed whole pass, with its start
+  and end times at its ends, and the heading gives the window's times and
+  highest point.  The satellite panel's explanation of "visible" and the
+  chart's caption are rewritten in every language, and Spanish and Italian
+  now say "máximo" and "massimo" for the highest point; these translations
+  are not yet reviewed by native speakers.
+- The orrery's names no longer print over other bodies.  Each is placed
+  clear of every planet, comet, comet tail and the 0° mark, and nearer its
+  own body than any other, wherever there is room.  The 0° mark moves off
+  the end of its line when a body sits there, and a comet at the edge of
+  the chart draws a shorter tail so it stays on the chart.  In a tight
+  crowd, especially on the narrow (phone) layout, a name can still end up
+  nearer a neighbor.
+- Names on the sky dome and the pass chart are placed better.  Each name
+  tries its mark's right side, then its left, then a row below or above,
+  and takes the first spot clear of marks, comet tails and other names
+  and not closer to another body.  Over two years of sample skies, names
+  more than two rows from their mark dropped from one in eight to almost
+  none on the full-size dome, and from nearly half to one in eight on the
+  narrow one.  The 30° and 60° figures move off a mark that sits on them,
+  comet tails stop at the horizon, and a name too long for either side
+  stays on the chart.  Meteor radiant names, which give way when space is
+  tight, appear slightly less often on a crowded dome.
+- The Dutch, Spanish, Italian, Norwegian and Swedish translations are no
+  longer marked Beta, in the files, the manual and the README.  Every one
+  is complete and has shipped for months; a native speaker's review, when
+  one comes, is credited in the file and the manual's table as before.
+
+## 2.11 (2026/10/23)
+- A configured comet no longer goes missing for two days when the Minor
+  Planet Center answers with only part of its CometEls.txt, which it does
+  while rebuilding the file (on 2026-10-23 it served 261 of its 965 comets
+  for about 40 minutes, Halley and Hale-Bopp not among them).  An answer
+  is now judged against the cached file: one with fewer than 95% as many
+  comets, or lacking a configured comet the cached file has, is refused,
+  the cached file serving on, and the MPC is asked again three hours later
+  (every two days and three hours once the cached file is three days old).
+  Since the MPC also drops faded comets, once the cached file is seven
+  days old the next answer is saved whatever it is, and a comet it lacks
+  reads N/A as before.  Nothing is remembered between fetches, so a
+  restart or a failed fetch cannot change what is saved.
+- A failed comet fetch with no cached file is retried three hours later
+  instead of two days later, since the station has no comets at all until
+  one succeeds; after a 403 or 429, which mean the MPC is refusing the
+  station, and whenever a cached file is serving, it waits two days and
+  three hours.  The waits are not whole days, so a retry no longer lands
+  at the same time of day as the last.
+- A comet file that weewxd cannot save (a cache directory owned by
+  another user) is reported as that, naming the directory, rather than
+  as a failed download.
+- The installer no longer fetches satellite or comet elements, and no
+  longer creates or changes the ownership of the cache directory.  weewxd
+  fetches whatever is missing or stale within seconds of starting, in
+  every configuration, so the install has no network step and no second
+  copy of the fetch rules; a wrong NORAD number or a failed download is
+  reported in weewxd's log instead of on the install's screen.
+- The cached comet file is now the MPC's bytes exactly as sent, and the
+  tags read it the same way the fetch does, so a byte the MPC never sends
+  can no longer raise an error at report time.
+
+## 2.10 (2026/10/14)
+- ACTION REQUIRED, if you use satellites on Skyfield 1.47 or 1.48:
+  upgrade Skyfield (`pip install --upgrade skyfield` in WeeWX's
+  environment).  Satellites now need 1.49 or later, because their
+  elements arrive in the OMM format, which earlier Skyfield cannot read.
+  On 1.47 or 1.48 satellites stop working after this upgrade, though it
+  can take up to 7 days for them to stop; everything else works as
+  before.
+- The install now stops before changing anything on a Skyfield older than
+  1.47, which the almanac has always needed, rather than installing an
+  almanac that then declines to run.
+- Satellite elements are fetched from CelesTrak as OMM in CSV form rather
+  than as TLEs.  A TLE has room for only five digits of catalog number,
+  and the catalog passed 99999 in July 2026, so a satellite launched since
+  could not be followed at all.  Satellites numbered up to 339999 now
+  work, the highest SGP4 takes; a number past it is refused at startup
+  and skipped at install, with the reason.
+- Each satellite's elements are cached as `wxskyfield_sat_<norad>.csv`,
+  CelesTrak's answer exactly as it came.  The upgrade adds no request to
+  CelesTrak: an old `.tle` file serves until that satellite's elements
+  are next due, when the fetch writes the `.csv` and deletes the `.tle`.
+  The installer does the same.
+- A station that runs with `satellite_downloads = false` and supplies its
+  own files may supply either form: `.csv` (CelesTrak's, or Space-Track's
+  OMM CSV, whose extra columns are ignored) or `.tle`, whose catalog
+  number may now be written in the Alpha-5 form (`E8493` is 148493).
+  Where both are there, the one with the later epoch is used.  With
+  downloads off the extension never deletes either.
+
+## 2.9 (2026/10/14)
+- The extension now stops asking CelesTrak at the first answer that is
+  not a good one, as CelesTrak's usage policy requires.  2.8 stopped only
+  for a 403, 404 or 429, and still retried everything else five minutes
+  later, doubling: a 500 or 503 from a server under load, a timeout, a
+  refused connection.  Retrying through those is how an address ends up
+  in CelesTrak's firewall.  Now any failure but a 404 ends the round: the
+  satellites after it are not asked for, and no satellite is asked again
+  for three hours, the normal cadence.  A 404 saying "No GP data found"
+  is a catalog number CelesTrak does not carry, a typo or a decayed
+  object: that satellite is not asked for again until weewxd restarts,
+  and the others are still fetched.  Any other 404, which CelesTrak's
+  policy says means an outdated URL, ends the round like the rest.  Each stop is logged once as an error with
+  the server's own words, for a person to look at.  There are no quick
+  retries of any kind; restarting weewxd asks again at once.
+- A redirect is no longer followed.  CelesTrak answers 301 to an
+  outdated URL and wants it noticed, so a 301 (or any 3xx) now ends the
+  round like any other answer instead of being followed silently.
+- The comet elements from the Minor Planet Center follow the same rule:
+  any failure waits the full two days before the next try.
+- The installer follows it too: CelesTrak's "No GP data found" skips
+  that satellite, and any other failure stops asking for the rest, which
+  weewxd asks for when it starts.  Two names for one catalog number are
+  one request, as in weewxd.
+
+## 2.8.1 (2026/10/10)
+- WeeWX can always stop.  weewxd shuts down by raising its Terminate
+  exception inside whatever the main thread is running at that instant,
+  and Terminate is an ordinary Exception, so the satellite and comet
+  element refreshers -- which run on the main thread at startup and at
+  every archive record -- could catch the shutdown as a failure of their
+  own, log it and carry on, leaving weewxd running until systemd killed it
+  90 seconds later.  The window was a few microseconds per archive record,
+  but it was there.  Both now hand Terminate back before doing anything
+  else, as the engine's startup already did, and the check recognizes the
+  running weewxd's own class rather than any exception that happens to
+  share its name.
+
+## 2.8 (2026/10/09)
+- A 403, 404 or 429 from CelesTrak or the Minor Planet Center gets no
+  quick retries.  Every failed fetch used to retry in five minutes, doubling up
+  to the normal cadence, for as long as it failed -- which is right for a
+  timeout or a 500, and wrong for a 403 or 404: CelesTrak sends 403 to an
+  address that has asked too often, and says that an address which keeps
+  repeating the request is blocked outright.  Now the fetch waits one
+  full cadence -- three hours, two days for comets -- before asking
+  again: for that one satellite after a 404, which is about a catalog
+  number CelesTrak does not carry, and for every satellite after a 403
+  or 429, which are about the address.  The cached elements are kept,
+  and the answer's own words are logged as an error, once per attempt,
+  so the reason is in the log instead of a warning every few minutes.
 - On the dark Sky page the lines between rows and sections can be seen.
   The rules between the planet and satellite rows, between the table's
   rows, under the header and over the footer were drawn in the color of

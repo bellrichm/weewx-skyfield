@@ -114,10 +114,17 @@ means the *ephemeris* is not the limiting factor.  Refraction at the horizon var
 real atmosphere in ways no model captures; every published rise and set time, from any
 source, carries tens of seconds of that uncertainty.
 
-**Satellites** are propagated by SGP4 from published TLEs, which age quickly: a reboost or
+**Satellites** are propagated by SGP4 from published orbital elements, which age quickly: a reboost or
 maneuver makes week-old elements minutes wrong.  That is why elements more than seven days
 older than the almanac's time are refused outright rather than used — an honest `N/A` beats
 a confident wrong pass time.
+
+**Visible passes** follow one rule: the satellite sunlit, your sun at least 6° below the
+horizon (the cut-off Heavens-Above uses for its predictions) and the satellite at least 10°
+up, all at the same moment, for at least a minute.  The visible window's ends are found on a
+10-second grid and refined to about a tenth of a second, far finer than the orbital elements
+are good for.  The window's highest point can be well below the pass's `max_altitude`: a
+satellite often climbs into Earth's shadow before it culminates.
 
 **Comets** are propagated as unperturbed two-body orbits — where-do-I-look accuracy, not
 ephemeris-grade positions far from the elements' epoch.  The routine refresh keeps the epoch
@@ -130,7 +137,8 @@ brighten them by magnitudes overnight, and famous ones have fizzled.  Treat the 
 expectation, not measurement.
 
 **Satellite magnitudes are deliberately absent.**  Satellite brightness models are
-hand-wavy; `sunlit` and `max_altitude` are served honestly instead.  This is the mirror image
+hand-wavy; `sunlit` and the visible window (`visible_peak_altitude` and its companions) are
+served honestly instead.  This is the mirror image
 of the comet decision: comets have a standard formula, satellites do not.
 
 **Meteor shower peaks** are computed from the sun's ecliptic longitude — the Perseids peak

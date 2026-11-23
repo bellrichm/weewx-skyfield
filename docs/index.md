@@ -82,9 +82,9 @@ be dropped into a skin of your own.
   and desktop-sized labels in one chart, the browser choosing by viewport.
 - **Speaks your language** — new in 1.12: the Sky page, its panels and the almanac's body
   names (`$almanac.moon.label`) are translatable through WeeWX's own lang files, with
-  per-string English fallback; complete German, French and Danish (all from native
-  speakers) and Dutch, Spanish, Italian, Norwegian and Swedish (Beta) translations ship
-  with the skin.
+  per-string English fallback; complete German, French, Danish, Dutch, Spanish, Italian,
+  Norwegian and Swedish translations ship with the skin, the first three from native
+  speakers.
   1.13 adds the constellations (`$almanac.saturn.constellation.label`), all 88 in each.
   (Body, constellation and meteor shower names need WeeWX 5.3 or later; the page itself
   translates on 5.2.)  [How to translate](i18n.md).
@@ -129,12 +129,12 @@ be dropped into a skin of your own.
 - Python 3.9 or later
 - WeeWX 5.2 or later (translated body, constellation and meteor shower names need 5.3 —
   see [Translating the Sky page](i18n.md#how-it-works))
-- [Skyfield](https://rhodesmill.org/skyfield/) 1.47 or later, and NumPy
+- [Skyfield](https://rhodesmill.org/skyfield/) 1.47 or later (1.49 for satellites), and NumPy
 - PyEphem is **not** required
 
-Skyfield 1.47 is the minimum supported version; development and the test suite track the
-current Skyfield release, so upgrading is recommended — see
-[Upgrading Skyfield](installation.md#upgrading-skyfield).
+Skyfield 1.47 is the minimum.  Satellites need 1.49 or later: their elements arrive in the
+OMM format, which earlier Skyfield cannot read.  Development and the test suite track the current Skyfield
+release — see [Upgrading Skyfield](installation.md#upgrading-skyfield).
 
 ## Quick start
 
@@ -169,15 +169,17 @@ update the same way.
 
 *The animation is the [weewx-celestial](https://github.com/chaunceygardiner/weewx-celestial)
 live page at work, moved by
-[weewx-loopdata](https://github.com/chaunceygardiner/weewx-loopdata) fields —
-weewx-skyfield's own Sky page stays static, refreshing once per report cycle.  The chart
-itself is this extension's dome, embedded there.  A third of the way across, still climbing, the marker
-inverts to a hollow ring as Tiangong — one of the two satellites the installer configures
-out of the box — slips into Earth's shadow; it goes on to cross the exact center of the
-dome dark, no longer shining.  In the opening seconds Terra is finishing its own low western
-pass: two satellites on the dome at once.  2-second frames played at 15 fps (about 30×
-speed), replayed through the live page with the orbital elements Space-Track archived for
-July 15.*
+[weewx-loopdata](https://github.com/chaunceygardiner/weewx-loopdata) fields — weewx-skyfield's
+own Sky page stays static, refreshing once per report cycle.  The chart itself is this
+extension's dome, embedded there.  A third of the way across, still climbing, the marker
+inverts to a hollow ring as Tiangong — one of the two satellites the installer configures out
+of the box — slips into Earth's shadow; it goes on to cross the exact center of the dome dark,
+no longer shining.  In the opening seconds Terra is finishing its own low western pass: two
+satellites on the dome at once.  2-second frames played at 15 fps (about 30× speed), replayed
+through the live page with the orbital elements Space-Track archived for July 15.  Captured in
+August 2026, before 2.12: the rows beside the dome still call this pass visible with a 90°
+peak, where it is now reported only for the stretch you can see, and the 30° and 60° figures
+sit on each other's rings, fixed in 2.7.*
 
 ## Relationship to other extensions
 
